@@ -118,7 +118,7 @@
   },
   "overrides": [
     {
-      "include": ["src/config/env.ts", "src/config/env.test.ts", "src/config/swagger.ts", "src/common/utils/email.ts", "src/common/services/email.service.ts", "src/api/settings/settings.schema.ts", "src/api/settings/settings.service.ts", "src/api/settings/settings.test.ts", "src/api/notification/preference.model.ts", "src/api/upload/upload.service.ts", "src/api/upload/upload.test.ts"],
+      "include": ["src/config/env.ts", "src/config/env.test.ts", "src/config/swagger.ts", "src/common/utils/email.ts", "src/common/services/email.service.ts", "src/api/settings/settings.schema.ts", "src/api/settings/settings.service.ts", "src/api/settings/settings.test.ts", "src/api/notification/preference.model.ts", "src/api/upload/upload.service.ts", "src/api/upload/upload.test.ts", "src/api/service/serviceImage.service.ts", "src/api/service/serviceImage.test.ts"],
       "linter": {
         "rules": {
           "style": {

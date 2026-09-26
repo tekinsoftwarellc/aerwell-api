@@ -5,6 +5,7 @@ import { hashPassword } from "../api/auth/password.js";
 import { Environment, Location } from "../api/location/location.model.js";
 import { MODULES, seedRoles } from "../api/role/permission.js";
 import { Role } from "../api/role/role.model.js";
+import { seedCatalog } from "../api/service/service.seed.js";
 import { OrganizationSettings } from "../api/settings/settings.model.js";
 import { StaffMember } from "../api/staff/staff.model.js";
 export const seedInputSchema = z
@@ -73,6 +74,7 @@ async function seedRoleTemplates(organizationId: string) {
 }
 export async function seedDevelopmentData(input: SeedInput): Promise<void> {
   const data = seedInputSchema.parse(input);
+  await seedCatalog(data.organizationId);
   const location = await seedOrganization(data.organizationId);
   const role = await seedRoleTemplates(data.organizationId);
   const staff = await StaffMember.findOneAndUpdate(

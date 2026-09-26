@@ -20,6 +20,7 @@ export const envSchema = z
     STAFF_JWT_SECRET: z.string().min(32).optional(),
     AWS_S3_BUCKET: z.string().optional(),
     AWS_REGION: z.string().optional(),
+    AWS_S3_BUCKET: z.string().optional(),
     SES_FROM_EMAIL: z.string().email().optional(),
     ADMIN_BASE_URL: z.string().url().optional(),
     AERWELL_ORG_ID: z.string().optional(),

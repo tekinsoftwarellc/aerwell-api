@@ -12,6 +12,7 @@ import { createInviteRouter } from "./api/invite/invite.router.js";
 import { settingsRouter } from "./api/settings/settings.router.js";
 import { staffRouter } from "./api/staff/staff.router.js";
 import { uploadRouter } from "./api/upload/upload.router.js";
+import { serviceRouter } from "./api/service/service.router.js";
 import { NotFoundError } from "./common/errors/AppError.js";
 import { correlationId } from "./common/middleware/correlationId.js";
 import { errorHandler } from "./common/middleware/errorHandler.js";
@@ -45,6 +46,7 @@ export const createServer = (cache: CacheService = createCacheService()): Expres
   app.use("/api/v1", createInviteRouter(cache));
   app.use("/api/v1", staffRouter);
   app.use("/api/v1", uploadRouter);
+  app.use("/api/v1", serviceRouter);
   app.use((_req, _res, next) => next(new NotFoundError("Route not found")));
   app.use(errorHandler);
   return app;
