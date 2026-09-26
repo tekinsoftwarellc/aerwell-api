@@ -162,6 +162,7 @@ export async function generateSuggestions(req: Request, cache: CacheService) {
   const model = getAlfredModel("fast");
   if (!model) throw aiUnconfigured();
   await limitPerStaff(cache, "suggestions", staff);
+  const memberId = await assertAnchor({ staff, requestId: req.requestId }, target);
   const sources = await gatherSources({ staff, requestId: req.requestId }, target);
   const keys = Object.keys(sources);
   const usageRow = {
@@ -202,14 +203,14 @@ export async function generateSuggestions(req: Request, cache: CacheService) {
         },
       },
     });
+    const text = turn.content.find((b) => "text" in b && b.text)?.text ?? "";
+    body = JSON.parse(text);
     await AlfredUsage.create({
       ...usageRow,
       ...turn.usage,
       latencyMs: turn.latencyMs,
       outcome: "ok",
     });
-    const text = turn.content.find((b) => "text" in b && b.text)?.text ?? "";
-    body = JSON.parse(text);
   } catch (error) {
     const errorName =
       error instanceof ModelCallError ? error.providerErrorName : "ModelOutputError";
@@ -231,7 +232,7 @@ export async function generateSuggestions(req: Request, cache: CacheService) {
       batchId,
     }))
   );
-  await auditSuggestions(req, target, String(batchId));
+  await auditSuggestions(req, String(batchId), memberId);
   return {
     configured: true,
     generatedAt: new Date(),
@@ -241,25 +242,38 @@ export async function generateSuggestions(req: Request, cache: CacheService) {
   };
 }
 
-/** Before showing stored suggestions, the anchor must still be in the actor's scope. */
+/**
+ * The anchor must still be in the actor's scope (no audit row: this is a check,
+ * not a read). Returns the member the suggestions are about, if any.
+ */
 async function assertAnchor(a: Actor, target: SuggestionTarget) {
-  if (target.context === "dashboard") return;
+  if (target.context === "dashboard") return undefined;
   const key = target.context === "visit" ? "GET /appointments/:id" : "GET /members/:id/overview";
   const id = target.context === "visit" ? target.appointmentId : target.memberId;
   const prepared = await prepareRoute(a, key, { params: { id } });
   if (!("req" in prepared)) throw refused(prepared);
-  if (target.context === "visit") await appointmentTarget(prepared.req);
-  else await memberTarget(prepared.req);
+  if (target.context === "visit") return String((await appointmentTarget(prepared.req)).memberId);
+  await memberTarget(prepared.req);
+  return target.memberId;
 }
-async function auditSuggestions(req: Request, target: SuggestionTarget, targetId: string) {
-  if (target.context !== "dashboard")
-    await audit(req, "viewed", "AlfredSuggestions", targetId, target.memberId);
+/** Source keys whose route the actor may still call (permission level only). */
+async function readableSources(a: Actor, target: SuggestionTarget, memberId?: string) {
+  const sources =
+    target.context === "dashboard" ? DASHBOARD_SOURCES : memberId ? memberSources(memberId) : [];
+  const readable = new Set(target.context === "visit" ? ["appointment"] : []);
+  for (const [key, route, input] of sources)
+    if ("req" in (await prepareRoute(a, route, input))) readable.add(key);
+  return readable;
 }
+/** Suggestion text is PHI derived from reads: audited like them, dashboard included. */
+const auditSuggestions = (req: Request, batchId: string, memberId?: string) =>
+  audit(req, "viewed", "AlfredSuggestions", batchId, memberId);
 
 export async function listSuggestions(req: Request) {
   const staff = actor(req);
   const target = req.query as unknown as SuggestionTarget;
-  await assertAnchor({ staff, requestId: req.requestId }, target);
+  const a = { staff, requestId: req.requestId };
+  const memberId = await assertAnchor(a, target);
   const latest = await AlfredSuggestion.findOne(scopeKey(staff, target)).sort({
     createdAt: -1,
     _id: -1,
@@ -269,14 +283,16 @@ export async function listSuggestions(req: Request) {
         _id: 1,
       })
     : [];
-  if (latest) await auditSuggestions(req, target, String(latest.batchId));
-  const shown = rows.filter((r) => r.status !== "dismissed");
+  if (latest) await auditSuggestions(req, String(latest.batchId), memberId);
+  // A suggestion built from a source the actor can no longer read is not shown.
+  const readable = await readableSources(a, target, memberId);
+  const visible = rows.filter((r) => r.sources.every((k) => readable.has(k)));
   return {
     configured: Boolean(getAlfredModel("fast")),
     generatedAt: latest?.createdAt ?? null,
-    items: shown.map(view),
-    done: rows.filter((r) => r.status === "done").length,
-    total: rows.length,
+    items: visible.filter((r) => r.status !== "dismissed").map(view),
+    done: visible.filter((r) => r.status === "done").length,
+    total: visible.length,
   };
 }
 

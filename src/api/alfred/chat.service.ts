@@ -122,6 +122,27 @@ async function history(conversationId: unknown, staff: StaffDocument): Promise<M
   return rows.reverse().map((r) => ({ role: r.role, content: [{ text: r.text }] }));
 }
 
+/**
+ * Converse needs strict user/assistant alternation starting with user: merge
+ * same-role neighbours and drop a leading assistant turn, so one orphaned row
+ * can never break the conversation for good.
+ */
+export function alternate(messages: Message[]): Message[] {
+  const turns: Message[] = [];
+  for (const m of messages) {
+    const last = turns.at(-1);
+    const text = String(m.content?.[0]?.text ?? "");
+    if (!last && m.role === "assistant") continue;
+    if (last && last.role === m.role)
+      turns[turns.length - 1] = {
+        role: m.role,
+        content: [{ text: `${last.content?.[0]?.text ?? ""}\n\n${text}` }],
+      };
+    else turns.push({ role: m.role, content: [{ text }] });
+  }
+  return turns;
+}
+
 const textOf = (content: ContentBlock[]) =>
   content
     .flatMap((b) => ("text" in b && b.text ? [b.text] : []))
@@ -192,7 +213,10 @@ export async function sendMessage(req: Request, cache: CacheService) {
     result = await runLoop(
       model,
       await systemPrompt(staff),
-      [...(await history(conversation._id, staff)), { role: "user", content: [{ text }] }],
+      alternate([
+        ...(await history(conversation._id, staff)),
+        { role: "user", content: [{ text }] },
+      ]),
       ctx
     );
   } catch (error) {
@@ -218,13 +242,19 @@ export async function sendMessage(req: Request, cache: CacheService) {
     staffId: staff._id,
     conversationId: conversation._id,
   };
-  const userRow = await AlfredMessage.create({ ...base, role: "user", text });
-  const assistantRow = await AlfredMessage.create({
-    ...base,
-    role: "assistant",
-    text: (result.reply || FALLBACK).slice(0, 8_000),
-    draftIds: ctx.draftIds,
-  });
+  // One write for the pair, so a turn is never half-saved.
+  const now = Date.now();
+  const [userRow, assistantRow] = await AlfredMessage.insertMany([
+    { ...base, role: "user", text, createdAt: new Date(now) },
+    {
+      ...base,
+      role: "assistant",
+      text: (result.reply || FALLBACK).slice(0, 8_000),
+      draftIds: ctx.draftIds,
+      createdAt: new Date(now + 1),
+    },
+  ]);
+  if (!(userRow && assistantRow)) throw new Error("Messages not saved");
   await AlfredConversation.updateOne(
     { _id: conversation._id },
     {

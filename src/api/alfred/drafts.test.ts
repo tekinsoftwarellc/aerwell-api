@@ -74,6 +74,7 @@ it("a booking is only a draft until confirmed; confirm books once through the no
     },
     editable: { reasonDetail: "", memberNote: "" },
   });
+  expect(draft.preview.reason).toBe("new_concern");
   expect(draft.preview.serviceTitle).toEqual(expect.any(String));
   expect(await Appointment.countDocuments()).toBe(0);
   const stored = await AlfredDraft.findById(draft.id).lean();
@@ -219,7 +220,8 @@ it("a supplement order is a draft record only: priced from the catalog, never pl
     productId: "000000000000000000000001",
   });
   expect(missing.result).toEqual({ error: expect.objectContaining({ code: "PRODUCT_NOT_FOUND" }) });
-  const draft = (await propose(api, "propose_supplement_order", args)).drafts[0];
+  const draft = (await propose(api, "propose_supplement_order", { ...args, autoRefill: true }))
+    .drafts[0];
   expect(draft.preview).toMatchObject({
     productName: "Vitamin D3 + K2 10,000 IU",
     totalCents: 6800,
@@ -232,6 +234,7 @@ it("a supplement order is a draft record only: priced from the catalog, never pl
     qty: 2,
     pricing: { subtotalCents: 6800, totalCents: 6800 },
     prescribedById: w.director.staff._id,
+    autoRefill: false,
   });
   const fd = await propose(w.http(w.frontDesk.accessToken), "propose_supplement_order", args);
   expect(fd.result).toEqual({ error: expect.objectContaining({ status: 403 }) });

@@ -219,10 +219,63 @@ it("a model failure or malformed output stores nothing and returns AI_FAILED", a
   useModel("fast", [{ ...json({}), content: [{ text: "not json" }] }]);
   expect((await api.post(PATH, { context: "dashboard" })).status).toBe(502);
   expect(await AlfredSuggestion.countDocuments()).toBe(0);
+  expect(await AlfredUsage.countDocuments({ outcome: "ok" })).toBe(0);
   expect((await AlfredUsage.find({ outcome: "error" }).lean()).map((u) => u.errorName)).toEqual([
     "AccessDeniedException",
     "ModelOutputError",
   ]);
   // Booking helper sanity: DAY is in the pinned future.
   expect(at(DAY, "09:00").getTime()).toBeGreaterThan(Date.now());
+});
+
+it("hides stored suggestions built from a source the staff member can no longer read", async () => {
+  const w = await alfredWorld();
+  useModel("fast", [
+    json({
+      suggestions: [
+        good("From labs", ["labs"]),
+        good("From profile"),
+        good("Both", ["profile", "labs"]),
+      ],
+    }),
+  ]);
+  const api = w.http(w.director.accessToken);
+  expect((await api.post(PATH, { context: "member_overview", memberId: w.memberId })).status).toBe(
+    201
+  );
+  await StaffMember.updateOne(
+    { _id: w.director.staff._id },
+    { $set: { permissionOverrides: [{ module: "LABS_SCANS", level: "none", scope: "all" }] } }
+  );
+  const list = (await api.get(`${PATH}?context=member_overview&memberId=${w.memberId}`)).body.data;
+  expect(list.items.map((i: { title: string }) => i.title)).toEqual(["From profile"]);
+  expect(list.total).toBe(1);
+});
+
+it("audits visit suggestions against the visit's member, and dashboard suggestions too", async () => {
+  const w = await alfredWorld();
+  const booked = await w.api.post(
+    "/api/v1/appointments",
+    w.booking(w.shannon._id, "clinician-telehealth-visit")
+  );
+  const appointmentId = booked.body.data.appointment._id;
+  useModel("fast", [
+    json({ suggestions: [good("Visit", ["appointment"])] }),
+    json({ suggestions: [good("Dash", ["dashboard"])] }),
+  ]);
+  const api = w.http(w.director.accessToken);
+  await api.post(PATH, { context: "visit", appointmentId });
+  await api.get(`${PATH}?context=visit&appointmentId=${appointmentId}`);
+  expect(
+    await AuditEvent.countDocuments({ targetType: "AlfredSuggestions", memberId: w.memberId })
+  ).toBe(2);
+  await api.post(PATH, { context: "dashboard" });
+  await api.get(`${PATH}?context=dashboard`);
+  expect(
+    await AuditEvent.countDocuments({
+      targetType: "AlfredSuggestions",
+      actorId: String(w.director.staff._id),
+      memberId: null,
+    })
+  ).toBe(2);
 });

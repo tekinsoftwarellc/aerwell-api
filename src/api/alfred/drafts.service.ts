@@ -113,6 +113,7 @@ const booking: KindSpec = {
       locationName: location?.name ?? null,
       timeZone: location?.timeZone ?? null,
       startAt: new Date(String(b["startAt"])).toISOString(),
+      reason: b["reason"] ?? null,
       priceCents: (quoted as { finalCents: number | null }).finalCents,
     };
   },
@@ -149,7 +150,6 @@ const supplement: KindSpec = {
       "durationDays",
       "qty",
       "fulfillment",
-      "autoRefill",
       "noteToMember",
     ]),
   }),

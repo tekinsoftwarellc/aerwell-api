@@ -228,3 +228,29 @@ it("stops after the tool-round cap with a safe reply, and rejects bad input", as
     { id, title: "loop" },
   ]);
 });
+
+it("repairs a history that does not alternate, so one bad row never breaks the conversation", async () => {
+  const w = await alfredWorld();
+  useModel("smart", [textTurn("First.")]);
+  const api = w.http(w.director.accessToken);
+  const id = await conversation(api);
+  await say(api, id, "one");
+  const base = { organizationId: "org-test", staffId: w.director.staff._id, conversationId: id };
+  await AlfredMessage.create({
+    ...base,
+    role: "user",
+    text: "orphan without a reply",
+    createdAt: new Date(Date.now() + 5),
+  });
+  const model = useModel("smart", [textTurn("Fine.")]);
+  expect((await say(api, id, "two")).status).toBe(200);
+  const roles = model.requests[0]?.messages?.map((m) => m.role);
+  expect(roles).toEqual(["user", "assistant", "user"]);
+  expect(JSON.stringify(model.requests[0]?.messages?.at(-1))).toContain("orphan without a reply");
+  expect(JSON.stringify(model.requests[0]?.messages?.at(-1))).toContain("two");
+  // A window that starts on an assistant turn is trimmed to start with the user.
+  await AlfredMessage.deleteMany({ role: "user", conversationId: id, text: "one" });
+  const again = useModel("smart", [textTurn("Ok.")]);
+  await say(api, id, "three");
+  expect(again.requests[0]?.messages?.[0]?.role).toBe("user");
+});
