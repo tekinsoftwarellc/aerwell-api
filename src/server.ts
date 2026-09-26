@@ -7,9 +7,11 @@ import helmet from "helmet";
 import hpp from "hpp";
 import swaggerUi from "swagger-ui-express";
 import { createAuthRouter, meRouter } from "./api/auth/auth.router.js";
+import { webhookRouter } from "./api/billing/webhook.js";
 import { catalogRouter } from "./api/catalog/catalog.router.js";
 import { healthRouter } from "./api/health/health.router.js";
 import { createInviteRouter } from "./api/invite/invite.router.js";
+import { memberRouter } from "./api/member/member.router.js";
 import { schedulingRouter } from "./api/schedule/schedule.router.js";
 import { serviceRouter } from "./api/service/service.router.js";
 import { settingsRouter } from "./api/settings/settings.router.js";
@@ -34,6 +36,8 @@ export const createServer = (cache: CacheService = createCacheService()): Expres
   app.use(compression());
   app.use(createRateLimiter(cache));
   app.use(requestLogger);
+  // Raw body for signature verification: must precede the JSON parser.
+  app.use("/api/v1", webhookRouter);
   app.use(express.json({ limit: "10kb" }));
   app.use(express.urlencoded({ extended: true, limit: "10kb" }));
   app.use(cookieParser());
@@ -51,6 +55,7 @@ export const createServer = (cache: CacheService = createCacheService()): Expres
   app.use("/api/v1", uploadRouter);
   app.use("/api/v1", serviceRouter);
   app.use("/api/v1", catalogRouter);
+  app.use("/api/v1", memberRouter);
   app.use((_req, _res, next) => next(new NotFoundError("Route not found")));
   app.use(errorHandler);
   return app;

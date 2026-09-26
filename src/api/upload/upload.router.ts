@@ -17,7 +17,7 @@ import {
 export const uploadRouter = Router();
 const input = z
   .object({
-    purpose: z.enum(["staff_document", "staff_photo", "organization_logo"]),
+    purpose: z.enum(["staff_document", "staff_photo", "organization_logo", "member_photo"]),
     contentType: z.enum(["image/jpeg", "image/png", "application/pdf"]),
     sizeBytes: z
       .number()
@@ -32,7 +32,11 @@ const input = z
   );
 secured(uploadRouter, "post", "/uploads/presign", null, { body: input }, async (req) => {
   const permissions = await resolvePermissions(actor(req));
-  const module = req.body.purpose === "organization_logo" ? "SYSTEM_SETTINGS" : "STAFF_RECORDS";
+  const modules = {
+    organization_logo: "SYSTEM_SETTINGS",
+    member_photo: "MEMBER_RECORDS",
+  } as const;
+  const module = modules[req.body.purpose as keyof typeof modules] ?? "STAFF_RECORDS";
   if (!permits(permissions[module].level, "edit")) throw new ForbiddenError();
   return presign(req);
 });

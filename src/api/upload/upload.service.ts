@@ -57,10 +57,10 @@ export async function presign(req: Request, purpose = req.body.purpose) {
   await audit(req, "upload_requested", "UploadRecord", String(record._id));
   return { uploadId: String(record._id), uploadUrl, headers, expiresIn: 180 };
 }
-async function verifiedUpload(req: Request, purpose: string) {
+export async function verifiedUpload(req: Request, purpose: string, uploadId = req.body.uploadId) {
   const staff = actor(req);
   const row = await UploadRecord.findOne({
-    _id: req.body.uploadId,
+    _id: uploadId,
     organizationId: staff.organizationId,
     uploadedBy: staff._id,
     purpose,

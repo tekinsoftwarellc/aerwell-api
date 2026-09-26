@@ -7,7 +7,7 @@ export const UploadRecord = model(
       uploadedBy: { type: Schema.Types.ObjectId, required: true },
       purpose: {
         type: String,
-        enum: ["staff_document", "staff_photo", "organization_logo"],
+        enum: ["staff_document", "staff_photo", "organization_logo", "member_photo"],
         required: true,
       },
       key: { type: String, required: true, unique: true },

@@ -23,6 +23,10 @@ export const envSchema = z
     SES_FROM_EMAIL: z.string().email().optional(),
     ADMIN_BASE_URL: z.string().url().optional(),
     AERWELL_ORG_ID: z.string().optional(),
+    // Payments stay unconfigured until both Stripe keys are supplied (W5).
+    STRIPE_SECRET_KEY: z.string().startsWith("sk_").optional(),
+    STRIPE_PUBLISHABLE_KEY: z.string().startsWith("pk_").optional(),
+    STRIPE_WEBHOOK_SECRET: z.string().startsWith("whsec_").optional(),
   })
   .refine((value) => value.NODE_ENV !== "production" || !value.CORS_ORIGIN.includes("*"), {
     path: ["CORS_ORIGIN"],

@@ -1,5 +1,6 @@
 import { authPaths } from "../api/auth/auth.openapi.js";
 import { catalogPaths } from "../api/catalog/catalog.openapi.js";
+import { memberPaths } from "../api/member/member.openapi.js";
 import { schedulePaths } from "../api/schedule/schedule.openapi.js";
 import { servicePaths } from "../api/service/service.openapi.js";
 import { settingsPaths } from "../api/settings/settings.openapi.js";
@@ -27,6 +28,7 @@ export const swaggerSpec = {
     ...servicePaths,
     ...catalogPaths,
     ...schedulePaths,
+    ...memberPaths,
     "/api/v1/health": {
       get: {
         summary: "Process and Mongo health",
