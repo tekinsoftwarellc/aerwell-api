@@ -76,6 +76,8 @@ memberSchema.index(
   { unique: true, partialFilterExpression: { processorCustomerId: { $type: "string" } } }
 );
 memberSchema.index({ organizationId: 1, status: 1, lastName: 1 });
+// W11: the directory's default page (active records, lastName order) and its count.
+memberSchema.index({ organizationId: 1, archivedAt: 1, lastName: 1, firstName: 1, _id: 1 });
 memberSchema.index({ organizationId: 1, assignedClinicianIds: 1 });
 export type MemberData = InferSchemaType<typeof memberSchema>;
 export type MemberDocument = HydratedDocument<MemberData>;

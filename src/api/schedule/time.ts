@@ -2,25 +2,34 @@ import { ValidationError } from "../../common/errors/AppError.js";
 export const addDays = (date: string, days: number) =>
   new Date(Date.parse(`${date}T12:00:00Z`) + days * 86400000).toISOString().slice(0, 10);
 const DEFAULT_TIME_ZONE = "America/Los_Angeles";
+// Building an Intl.DateTimeFormat costs far more than formatting with one: cache per
+// zone (W11 load test: a month summary spent seconds constructing formatters).
+const cached = (options: Intl.DateTimeFormatOptions) => {
+  const byZone = new Map<string, Intl.DateTimeFormat>();
+  return (timeZone: string) => {
+    let formatter = byZone.get(timeZone);
+    if (!formatter) {
+      formatter = new Intl.DateTimeFormat("sv-SE", { ...options, timeZone });
+      byZone.set(timeZone, formatter);
+    }
+    return formatter;
+  };
+};
+const dateFormatter = cached({ year: "numeric", month: "2-digit", day: "2-digit" });
+const minuteFormatter = cached({
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
 /** Calendar date (YYYY-MM-DD) of `now` in the given IANA zone. */
 export const todayIn = (timeZone = DEFAULT_TIME_ZONE, now = new Date()) =>
-  new Intl.DateTimeFormat("sv-SE", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(now);
+  dateFormatter(timeZone).format(now);
 export function localInstant(date: string, time: string, timeZone: string) {
   const base = Date.parse(`${date}T${time}:00Z`);
-  const formatter = new Intl.DateTimeFormat("sv-SE", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  });
+  const formatter = minuteFormatter(timeZone);
   const matches: number[] = [];
   // IANA offsets are minute-granular for supported contemporary scheduling dates.
   for (let offset = -14 * 60; offset <= 14 * 60; offset += 15) {

@@ -36,3 +36,16 @@ it("splits inclusive calendar days across a year boundary", () => {
   expect(daysByYear("2027-12-30", "2028-01-02")).toEqual({ "2027": 2, "2028": 2 });
   expect(daysByYear("2027-03-10", "2027-03-10")).toEqual({ "2027": 1 });
 });
+
+it("W11: cached formatters stay per zone (one zone never answers for another)", () => {
+  const instant = new Date("2026-03-10T03:30:00Z");
+  expect(todayIn("America/Los_Angeles", instant)).toBe("2026-03-09");
+  expect(todayIn("Asia/Tokyo", instant)).toBe("2026-03-10");
+  expect(todayIn("America/Los_Angeles", instant)).toBe("2026-03-09");
+  expect(localInstant("2026-03-10", "09:00", "Asia/Tokyo").toISOString()).toBe(
+    "2026-03-10T00:00:00.000Z"
+  );
+  expect(localInstant("2026-03-10", "09:00", "America/New_York").toISOString()).toBe(
+    "2026-03-10T13:00:00.000Z"
+  );
+});
