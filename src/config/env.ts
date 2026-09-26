@@ -18,7 +18,6 @@ export const envSchema = z
     ALFRED_AUTH_CLIENT_ID: z.string().optional(),
     ALFRED_AUTH_CLIENT_SECRET: z.string().optional(),
     STAFF_JWT_SECRET: z.string().min(32).optional(),
-    AWS_S3_BUCKET: z.string().optional(),
     AWS_REGION: z.string().optional(),
     AWS_S3_BUCKET: z.string().optional(),
     SES_FROM_EMAIL: z.string().email().optional(),

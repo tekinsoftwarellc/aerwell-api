@@ -1,6 +1,6 @@
 import { authPaths } from "../api/auth/auth.openapi.js";
-import { settingsPaths } from "../api/settings/settings.openapi.js";
 import { servicePaths } from "../api/service/service.openapi.js";
+import { settingsPaths } from "../api/settings/settings.openapi.js";
 const envelope = (data: Record<string, unknown>) => ({
   type: "object",
   required: ["success", "status", "message", "data", "statusCode"],

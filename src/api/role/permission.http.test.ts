@@ -42,13 +42,22 @@ describe("permission middleware HTTP matrix", () => {
         next();
       });
       mountPermissionRoutes(app);
-      for (const [moduleIndex, module] of MODULES.entries()) {
-        for (const [i, level] of ["view", "edit", "master"].entries()) {
-          const allowed = (expectedRanks[index]?.[moduleIndex] ?? -1) >= i + 1;
-          const response = await request(app).get(`/${module}/${level}`);
-          expect(response.status, `${role.name} ${module} ${level}`).toBe(allowed ? 200 : 403);
-          if (!allowed) expect(response.body.code).toBe("FORBIDDEN");
+      const server = app.listen(0);
+      try {
+        for (const [moduleIndex, module] of MODULES.entries()) {
+          for (const [i, level] of ["view", "edit", "master"].entries()) {
+            const allowed = (expectedRanks[index]?.[moduleIndex] ?? -1) >= i + 1;
+            const response = await request(server)
+              .get(`/${module}/${level}`)
+              .set("Connection", "close");
+            expect(response.status, `${role.name} ${module} ${level}`).toBe(allowed ? 200 : 403);
+            if (!allowed) expect(response.body.code).toBe("FORBIDDEN");
+          }
         }
+      } finally {
+        await new Promise<void>((resolve, reject) =>
+          server.close((error) => (error ? reject(error) : resolve()))
+        );
       }
     }
   );
