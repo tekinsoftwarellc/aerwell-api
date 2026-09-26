@@ -2,6 +2,7 @@ import { z } from "zod";
 import { StaffCredential } from "../api/auth/auth.model.js";
 import { passwordSchema } from "../api/auth/auth.schema.js";
 import { hashPassword } from "../api/auth/password.js";
+import { Market } from "../api/catalog/catalog.model.js";
 import { Environment, Location } from "../api/location/location.model.js";
 import { MODULES, seedRoles } from "../api/role/permission.js";
 import { Role } from "../api/role/role.model.js";
@@ -43,6 +44,12 @@ async function seedOrganization(organizationId: string) {
   await OrganizationSettings.updateOne(
     { organizationId, primaryLocationId: { $exists: false } },
     { $set: { primaryLocationId: location._id } }
+  );
+  // The seeded clinic serves the seeded Las Vegas market (DEXA/VO2 need it);
+  // only while the market has no locations, so staff edits are never overwritten.
+  await Market.updateOne(
+    { organizationId, slug: "las-vegas", locationIds: { $size: 0 } },
+    { $set: { locationIds: [location._id] } }
   );
   for (const name of ["The Clinic", "The Reserve"])
     await Environment.updateOne(
