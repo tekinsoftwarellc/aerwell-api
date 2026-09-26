@@ -130,7 +130,7 @@
       }
     },
     {
-      "include": ["src/api/visit/transcribe.adapter.ts", "src/api/visit/adapters.test.ts", "src/api/visit/visit.socket.ts"],
+      "include": ["src/api/visit/transcribe.adapter.ts", "src/api/visit/adapters.test.ts", "src/api/visit/visit.socket.ts", "src/api/alfred/drafts.service.ts", "src/api/alfred/adapter.test.ts", "src/test/alfredFixture.ts"],
       "linter": {
         "rules": {
           "style": {

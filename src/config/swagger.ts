@@ -1,3 +1,4 @@
+import { alfredPaths } from "../api/alfred/alfred.openapi.js";
 import { appointmentPaths } from "../api/appointment/appointment.openapi.js";
 import { authPaths } from "../api/auth/auth.openapi.js";
 import { catalogPaths } from "../api/catalog/catalog.openapi.js";
@@ -7,6 +8,7 @@ import { memberPaths } from "../api/member/member.openapi.js";
 import { schedulePaths } from "../api/schedule/schedule.openapi.js";
 import { servicePaths } from "../api/service/service.openapi.js";
 import { settingsPaths } from "../api/settings/settings.openapi.js";
+import { supplementPaths } from "../api/supplement/supplement.js";
 import { visitPaths } from "../api/visit/visit.openapi.js";
 const envelope = (data: Record<string, unknown>) => ({
   type: "object",
@@ -38,6 +40,8 @@ export const swaggerSpec = {
     ...dashboardPaths,
     // W9 visit workspace (appended).
     ...visitPaths,
+    ...supplementPaths,
+    ...alfredPaths,
     "/api/v1/health": {
       get: {
         summary: "Process and Mongo health",

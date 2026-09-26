@@ -21,6 +21,21 @@ export function actor(req: Request): StaffDocument {
   if (!req.staff) throw new UnauthorizedError();
   return req.staff;
 }
+export interface RouteSpec {
+  method: "get" | "post" | "patch" | "put" | "delete";
+  path: string;
+  permission: { module: PermissionModule; level: PermissionLevel } | null;
+  schema: { body?: ZodTypeAny; query?: ZodTypeAny; params?: ZodTypeAny };
+  handler: (req: Request) => Promise<unknown>;
+}
+/**
+ * Every route mounted through `secured`, keyed `"GET /members/:id"`. Alfred AI
+ * tools call these exact specs (same guard, schema and handler) as the acting
+ * staff member, so a tool can never read what that person could not over HTTP.
+ */
+export const routeRegistry = new Map<string, RouteSpec>();
+export const registerRoute = (spec: RouteSpec) =>
+  routeRegistry.set(`${spec.method.toUpperCase()} ${spec.path}`, spec);
 export function secured(
   router: Router,
   method: "get" | "post" | "patch" | "put" | "delete",
@@ -30,6 +45,7 @@ export function secured(
   handler: (req: Request) => Promise<unknown>,
   status = 200
 ) {
+  registerRoute({ method, path, permission, schema, handler });
   const guard = permission ? [requirePermission(permission.module, permission.level)] : [];
   router[method](
     path,

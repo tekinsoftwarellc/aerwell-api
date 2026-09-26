@@ -6,6 +6,7 @@ import mongoSanitize from "express-mongo-sanitize";
 import helmet from "helmet";
 import hpp from "hpp";
 import swaggerUi from "swagger-ui-express";
+import { createAlfredRouter } from "./api/alfred/alfred.router.js";
 import { appointmentRouter } from "./api/appointment/appointment.router.js";
 import { createAuthRouter, meRouter } from "./api/auth/auth.router.js";
 import { webhookRouter } from "./api/billing/webhook.js";
@@ -20,6 +21,7 @@ import { schedulingRouter } from "./api/schedule/schedule.router.js";
 import { serviceRouter } from "./api/service/service.router.js";
 import { settingsRouter } from "./api/settings/settings.router.js";
 import { staffRouter } from "./api/staff/staff.router.js";
+import { supplementRouter } from "./api/supplement/supplement.js";
 import { uploadRouter } from "./api/upload/upload.router.js";
 import { visitRouter } from "./api/visit/visit.router.js";
 import { NotFoundError } from "./common/errors/AppError.js";
@@ -69,6 +71,9 @@ export const createServer = (cache: CacheService = createCacheService()): Expres
   app.use("/api/v1", dashboardRouter);
   // W9 visit workspace (appended; self-contained router). Live audio is attached in index.ts.
   app.use("/api/v1", visitRouter);
+  // W10 Alfred AI + draft supplement orders (appended; self-contained routers).
+  app.use("/api/v1", supplementRouter);
+  app.use("/api/v1", createAlfredRouter(cache));
   app.use((_req, _res, next) => next(new NotFoundError("Route not found")));
   app.use(errorHandler);
   return app;

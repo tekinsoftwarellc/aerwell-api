@@ -10,6 +10,7 @@ import { Role } from "../api/role/role.model.js";
 import { seedCatalog } from "../api/service/service.seed.js";
 import { OrganizationSettings } from "../api/settings/settings.model.js";
 import { StaffMember } from "../api/staff/staff.model.js";
+import { seedSupplementCatalog } from "../api/supplement/supplement.js";
 export const seedInputSchema = z
   .object({
     organizationId: z.string().min(1),
@@ -84,6 +85,7 @@ export async function seedDevelopmentData(input: SeedInput): Promise<void> {
   const data = seedInputSchema.parse(input);
   await seedCatalog(data.organizationId);
   await seedClinicalCatalog(data.organizationId);
+  await seedSupplementCatalog(data.organizationId);
   const location = await seedOrganization(data.organizationId);
   const role = await seedRoleTemplates(data.organizationId);
   const staff = await StaffMember.findOneAndUpdate(

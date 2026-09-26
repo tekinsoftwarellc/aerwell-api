@@ -1,9 +1,10 @@
 import { Router } from "express";
+import { registerRoute } from "../../common/http.js";
 import { authenticate } from "../../common/middleware/authenticate.js";
 import { requirePermission } from "../../common/middleware/permission.js";
 import { ServiceResponse } from "../../common/models/serviceResponse.js";
 import { asyncHandler } from "../../common/utils/asyncHandler.js";
-import { imageSchema } from "./service.schema.js";
+import { imageSchema, listSchema } from "./service.schema.js";
 import {
   bulkServices,
   createService,
@@ -18,6 +19,14 @@ export const serviceRouter = Router();
 serviceRouter.use(["/services", "/service-categories"], authenticate);
 const view = requirePermission("SERVICES", "view");
 const edit = requirePermission("SERVICES", "edit");
+// Alfred AI reads the service list through the same guard and handler as GET /services.
+registerRoute({
+  method: "get",
+  path: "/services",
+  permission: { module: "SERVICES", level: "view" },
+  schema: { query: listSchema },
+  handler: listServices,
+});
 serviceRouter.get(
   "/services",
   view,
