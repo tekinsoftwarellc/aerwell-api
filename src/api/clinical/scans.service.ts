@@ -12,6 +12,7 @@ import {
   clinicalMember,
   documentLink,
   verifyDocument,
+  withoutDocument,
 } from "./clinical.shared.js";
 import { deltaPct } from "./labs.service.js";
 import { computeStatus, referenceLabels, resolveReference } from "./range.js";
@@ -58,7 +59,7 @@ function overallStatus(scan: { metrics?: unknown }) {
   return statuses.every((s) => s === "normal") ? "all_normal" : "attention";
 }
 
-export async function createScan(req: Request) {
+async function createScanRow(req: Request) {
   const member = await clinicalMember(req, "LABS_SCANS", true);
   const { metrics, findings, documentUploadId, ...fields } = req.body;
   const built = await buildMetrics(member, metrics);
@@ -145,7 +146,7 @@ export async function getScan(req: Request) {
     previousScan: previous ? { _id: previous._id, performedAt: previous.performedAt } : null,
   };
 }
-export async function reviewScan(req: Request) {
+async function reviewScanRow(req: Request) {
   const member = await clinicalMember(req, "LABS_SCANS", true);
   const filter = { ...byMember(member), _id: req.params["scanId"] };
   const findings = (req.body.findings ?? []).map((f: object) => ({ ...f, authorId: actorId(req) }));
@@ -184,3 +185,6 @@ export async function scanTrend(req: Request) {
   await audit(req, "viewed", "ScanTrend", metric, String(member._id));
   return { metric, reference, ...referenceLabels(reference), points };
 }
+
+export const createScan = async (req: Request) => withoutDocument(await createScanRow(req));
+export const reviewScan = async (req: Request) => withoutDocument(await reviewScanRow(req));

@@ -98,6 +98,9 @@ describe("health summary and scores", () => {
       ],
     });
     expect(dup.status).toBe(400);
+    // Review L3: an empty snapshot would hide the real latest score.
+    const blank = await admin.send("post", path("/scores"), { period: "2026-09-02" });
+    expect(blank.status).toBe(400);
   });
 });
 

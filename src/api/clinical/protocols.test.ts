@@ -198,6 +198,14 @@ describe("protocols", () => {
     });
     expect((await log("2026-09-09T15:00:00Z", "x", "0123456789abcdef01234567")).status).toBe(404);
     expect(await InjectionLog.countDocuments({ protocolId: p._id })).toBe(2);
+    // Review M2: a newer injection bumps the version, so an editor opened before it
+    // cannot write back a stale last-injection site.
+    expect(row.version).toBe(p.version + 1);
+    const stale = await admin.send("patch", path(`/protocols/${p._id}`), {
+      expectedVersion: p.version,
+      lastInjectionSite: "Stale site",
+    });
+    expect(stale.body.code).toBe("VERSION_CONFLICT");
     expect(
       await AuditEvent.countDocuments({ targetType: "InjectionLog", memberId: idOf(member) })
     ).toBe(2);

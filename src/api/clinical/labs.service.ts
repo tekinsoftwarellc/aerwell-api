@@ -15,6 +15,7 @@ import {
   documentLink,
   staffNames,
   verifyDocument,
+  withoutDocument,
 } from "./clinical.shared.js";
 import {
   OUT_OF_RANGE,
@@ -99,7 +100,7 @@ function present(result: StoredResult, previous?: StoredResult) {
   };
 }
 
-export async function createPanel(req: Request) {
+async function createPanelRow(req: Request) {
   const member = await clinicalMember(req, "LABS_SCANS", true);
   const { results, findings, documentUploadId, ...fields } = req.body;
   if (fields.orderedById) await assertStaff(member.organizationId, fields.orderedById);
@@ -171,7 +172,7 @@ export async function listPanels(req: Request) {
   const names = await staffNames(rows.map((r) => r["orderedById"]));
   await auditRead(req, "LabPanels", member);
   return rows.map(({ results, findings, ...row }, i) => ({
-    ...row,
+    ...withoutDocument(row),
     orderedByName: names.get(String(row["orderedById"])) ?? null,
     ...panelCounts(results),
     notableChange: notableChange({ ...row, results }, rows[i + 1]),
@@ -220,7 +221,7 @@ export async function getPanel(req: Request) {
   };
 }
 
-export async function reviewPanel(req: Request) {
+async function reviewPanelRow(req: Request) {
   const member = await clinicalMember(req, "LABS_SCANS", true);
   const filter = { ...byMember(member), _id: req.params["panelId"] };
   const findings = (req.body.findings ?? []).map((f: object) => ({ ...f, authorId: actorId(req) }));
@@ -288,3 +289,6 @@ export async function biomarkerTrend(req: Request) {
     points,
   };
 }
+
+export const createPanel = async (req: Request) => withoutDocument(await createPanelRow(req));
+export const reviewPanel = async (req: Request) => withoutDocument(await reviewPanelRow(req));

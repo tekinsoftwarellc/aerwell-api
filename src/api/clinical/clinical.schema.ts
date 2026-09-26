@@ -200,7 +200,13 @@ export const scoreCreate = z
       .refine((d) => new Set(d.map((x) => x.domain)).size === d.length, "Each domain once")
       .default([]),
   })
-  .strict();
+  .strict()
+  .refine(
+    (v) =>
+      [v.overallScore, v.biologicalAge, v.bodyCompScore].some((x) => x !== undefined) ||
+      v.domainScores.length > 0,
+    { message: "Enter at least one score or age", path: ["overallScore"] }
+  );
 export const scoreQuery = z.object({ range: z.enum(["3m", "6m", "1y"]).default("6m") }).strict();
 
 // ---- Wearables (read-only proxy seam)

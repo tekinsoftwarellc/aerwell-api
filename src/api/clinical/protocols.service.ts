@@ -252,7 +252,9 @@ export async function logInjection(req: Request) {
           _id: doc._id,
           $or: [{ lastLoggedInjectionAt: null }, { lastLoggedInjectionAt: { $lt: at } }],
         },
-        { $set: { lastLoggedInjectionAt: at, lastInjectionSite: site } },
+        // The version bump makes an Adjust editor opened earlier conflict instead of
+        // writing back a stale lastInjectionSite.
+        { $set: { lastLoggedInjectionAt: at, lastInjectionSite: site }, $inc: { version: 1 } },
         { session }
       );
       return log;

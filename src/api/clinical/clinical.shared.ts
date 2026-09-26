@@ -96,3 +96,11 @@ export async function assertStaff(organizationId: string, id: unknown) {
     throw new NotFoundError("Staff member not found");
 }
 export const actorId = (req: Request) => actor(req)._id;
+/** Response shape for a panel/scan: the internal upload id never leaves the API. */
+export function withoutDocument(row: object) {
+  const plain = (
+    "toObject" in row && typeof row.toObject === "function" ? row.toObject() : row
+  ) as Record<string, unknown>;
+  const { documentUploadId, ...rest } = plain;
+  return { ...rest, hasDocument: Boolean(documentUploadId) };
+}

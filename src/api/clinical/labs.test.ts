@@ -263,6 +263,18 @@ describe("lab panels", () => {
     const created = await panel("2026-07-29T16:00:00Z", [], { documentUploadId: uploadId });
     expect(created.status).toBe(201);
     expect(created.body.data.source).toBe("pdf");
+    // Review L1: the internal upload id never leaves the API.
+    expect(created.body.data.documentUploadId).toBeUndefined();
+    expect(created.body.data.hasDocument).toBe(true);
+    const listed = (await admin.get(path("/lab-panels"))).body.data;
+    expect(listed[0].documentUploadId).toBeUndefined();
+    expect(listed[0].hasDocument).toBe(true);
+    const reviewed = await admin.send(
+      "post",
+      path(`/lab-panels/${created.body.data._id}/review`),
+      {}
+    );
+    expect(reviewed.body.data.documentUploadId).toBeUndefined();
     expect((await UploadRecord.findById(uploadId))?.attachedTo).toBe(
       `LabPanel:${created.body.data._id}`
     );
