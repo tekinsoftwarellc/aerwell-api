@@ -161,14 +161,21 @@ async function photoUrl(member: Pick<MemberData, "photoUploadId" | "organization
   try {
     return (await signedDownload(String(member.photoUploadId), member.organizationId)).url;
   } catch (error) {
-    if (error instanceof AppError && error.statusCode === 503) return null;
+    // Unconfigured storage or a missing/unverified upload must not break the profile read.
+    if (error instanceof AppError && [404, 503].includes(error.statusCode)) return null;
     throw error;
   }
 }
 async function presentMember(member: MemberDocument) {
   const brands = await brandLabels(member.organizationId, [member._id]);
+  // Internal processor/locking fields never leave the API.
+  const {
+    processorCustomerId: Customer,
+    membershipRevision: Revision,
+    ...fields
+  } = member.toObject();
   return {
-    ...member.toObject(),
+    ...fields,
     photoUrl: await photoUrl(member),
     brandLabel: brands.get(String(member._id)) ?? null,
     alfredLink: alfredLink(member),
@@ -272,8 +279,12 @@ export async function memberOverview(req: Request) {
     .limit(5)
     .lean();
   let notes: { newCount: number; items: unknown[] } | null = null;
-  if (permits(permissions.CLINICAL_NOTES.level, "view")) {
-    const reader = actor(req)._id;
+  const reader = actor(req)._id;
+  // Notes follow the CLINICAL_NOTES scope, which can be narrower than MEMBER_RECORDS.
+  const notesInScope =
+    permissions.CLINICAL_NOTES.scope === "all" ||
+    member.assignedClinicianIds.some((id) => String(id) === String(reader));
+  if (permits(permissions.CLINICAL_NOTES.level, "view") && notesInScope) {
     const filter = { organizationId: member.organizationId, memberId: member._id };
     const [items, newCount] = await Promise.all([
       MemberNote.find(filter).sort({ createdAt: -1, _id: -1 }).limit(3).lean(),

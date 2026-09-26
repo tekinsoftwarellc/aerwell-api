@@ -5,6 +5,7 @@ import { ORG, client, idOf, memberRow, staffWith } from "../../test/memberFixtur
 import { staffFixture } from "../../test/staffFixture.js";
 import { AuditEvent } from "../audit/audit.js";
 import { StaffCredential } from "../auth/auth.model.js";
+import { Role } from "../role/role.model.js";
 import { UploadRecord } from "../upload/upload.model.js";
 import { Member, MemberFlag } from "./member.model.js";
 
@@ -324,6 +325,36 @@ describe("member photos", () => {
     const res = await admin.send("post", "/members", { ...person, photoUploadId: idOf(upload) });
     expect(res.status).toBe(503);
     expect(await Member.countDocuments()).toBe(0);
+  });
+});
+
+describe("review regressions", () => {
+  it("applies the CLINICAL_NOTES own scope to the overview notes preview", async () => {
+    const mixed = await staffWith({ MEMBER_RECORDS: "view", CLINICAL_NOTES: "view" });
+    await Role.updateOne(
+      { _id: mixed.role._id, "permissions.module": "CLINICAL_NOTES" },
+      { $set: { "permissions.$.scope": "own" } }
+    );
+    const unassigned = await memberRow();
+    const assigned = await memberRow({ assignedClinicianIds: [mixed.staff._id] });
+    await admin.send("post", `/members/${idOf(unassigned)}/notes`, { body: "Not yours" });
+    const api = client(app, mixed.accessToken);
+    expect((await api.get(`/members/${idOf(unassigned)}/overview`)).body.data.notes).toBeNull();
+    expect((await api.get(`/members/${idOf(assigned)}/overview`)).body.data.notes).toEqual({
+      newCount: 0,
+      items: [],
+    });
+  });
+  it("keeps internal fields out of the profile and survives a missing photo upload", async () => {
+    const row = await memberRow({
+      processorCustomerId: "cus_internal",
+      photoUploadId: new Types.ObjectId(),
+    });
+    const res = await admin.get(`/members/${idOf(row)}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data.photoUrl).toBeNull();
+    expect(res.body.data).not.toHaveProperty("processorCustomerId");
+    expect(res.body.data).not.toHaveProperty("membershipRevision");
   });
 });
 

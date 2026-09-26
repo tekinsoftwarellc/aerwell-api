@@ -78,6 +78,35 @@ async function assignablePlan(organizationId: string, planId: string, session?: 
   return plan;
 }
 
+/**
+ * Serializes membership writers for one member (the member-doc bump makes
+ * concurrent transactions conflict and retry), then refuses a same-plan overlap.
+ */
+async function lockAndAssertNoOverlap(
+  member: MemberDocument,
+  period: { planId: unknown; startedAt: Date; endsAt: Date | null; excludeId?: unknown },
+  session: ClientSession
+) {
+  await Member.updateOne({ _id: member._id }, { $inc: { membershipRevision: 1 } }, { session });
+  const overlap = await MemberMembership.exists({
+    organizationId: member.organizationId,
+    memberId: member._id,
+    planId: period.planId,
+    status: { $ne: "cancelled" },
+    ...(period.excludeId ? { _id: { $ne: period.excludeId } } : {}),
+    $and: [
+      { $or: [{ endsAt: null }, { endsAt: { $gt: period.startedAt } }] },
+      ...(period.endsAt ? [{ startedAt: { $lt: period.endsAt } }] : []),
+    ],
+  }).session(session);
+  if (overlap)
+    throw new ConflictError(
+      "The member already holds this plan for that period",
+      undefined,
+      "MEMBERSHIP_OVERLAP"
+    );
+}
+
 interface HoldInput {
   planId: string;
   startedAt?: Date;
@@ -92,25 +121,9 @@ export async function holdMembership(
   session: ClientSession
 ) {
   const plan = await assignablePlan(member.organizationId, input.planId, session);
-  await Member.updateOne({ _id: member._id }, { $inc: { membershipRevision: 1 } }, { session });
   const startedAt = input.startedAt ?? new Date();
   const endsAt = input.endsAt ?? null;
-  const overlap = await MemberMembership.exists({
-    organizationId: member.organizationId,
-    memberId: member._id,
-    planId: plan._id,
-    status: { $ne: "cancelled" },
-    $and: [
-      { $or: [{ endsAt: null }, { endsAt: { $gt: startedAt } }] },
-      ...(endsAt ? [{ startedAt: { $lt: endsAt } }] : []),
-    ],
-  }).session(session);
-  if (overlap)
-    throw new ConflictError(
-      "The member already holds this plan for that period",
-      undefined,
-      "MEMBERSHIP_OVERLAP"
-    );
+  await lockAndAssertNoOverlap(member, { planId: plan._id, startedAt, endsAt }, session);
   const [row] = await MemberMembership.create(
     [
       {
@@ -171,53 +184,62 @@ const TRANSITIONS: Record<string, string[]> = {
   paused: ["active", "cancelled"],
   cancelled: [],
 };
+const versionConflict = () =>
+  new ConflictError("This membership changed; reload and try again", undefined, "VERSION_CONFLICT");
 export async function patchMembership(req: Request) {
   const member = await memberTarget(req, { write: true });
-  const row = await MemberMembership.findOne({
-    _id: req.params["membershipId"],
-    organizationId: member.organizationId,
-    memberId: member._id,
-  });
-  if (!row) throw new NotFoundError("Membership not found");
   const { expectedVersion, ...changes } = req.body as {
     expectedVersion?: number;
     status?: string;
     endsAt?: Date | null;
     autoRenew?: boolean;
   };
-  const version = (row as unknown as { version: number }).version;
-  if (expectedVersion !== undefined && expectedVersion !== version)
-    throw new ConflictError(
-      "This membership changed; reload and try again",
-      undefined,
-      "VERSION_CONFLICT"
-    );
-  if (
-    changes.status &&
-    changes.status !== row.status &&
-    !TRANSITIONS[row.status]?.includes(changes.status)
-  )
-    throw new ValidationError(
-      `A ${row.status} membership cannot become ${changes.status}`,
-      "INVALID_MEMBERSHIP_TRANSITION"
-    );
-  if (changes.endsAt && changes.endsAt <= row.startedAt)
-    throw new ValidationError("End must be after start", "INVALID_MEMBERSHIP_DATES");
-  row.set(changes);
-  if (changes.status === "cancelled" && !row.cancelledAt) row.cancelledAt = new Date();
   try {
-    await row.save();
+    return await mongoose.connection.transaction(async (session) => {
+      const row = await MemberMembership.findOne({
+        _id: req.params["membershipId"],
+        organizationId: member.organizationId,
+        memberId: member._id,
+      }).session(session);
+      if (!row) throw new NotFoundError("Membership not found");
+      if (
+        expectedVersion !== undefined &&
+        expectedVersion !== (row as unknown as { version: number }).version
+      )
+        throw versionConflict();
+      if (
+        changes.status &&
+        changes.status !== row.status &&
+        !TRANSITIONS[row.status]?.includes(changes.status)
+      )
+        throw new ValidationError(
+          `A ${row.status} membership cannot become ${changes.status}`,
+          "INVALID_MEMBERSHIP_TRANSITION"
+        );
+      if (changes.endsAt && changes.endsAt <= row.startedAt)
+        throw new ValidationError("End must be after start", "INVALID_MEMBERSHIP_DATES");
+      row.set(changes);
+      if (changes.status === "cancelled" && !row.cancelledAt) row.cancelledAt = new Date();
+      // A period change or a reactivation must not create a same-plan overlap.
+      if (row.status !== "cancelled" && ("endsAt" in changes || "status" in changes))
+        await lockAndAssertNoOverlap(
+          member,
+          {
+            planId: row.planId,
+            startedAt: row.startedAt,
+            endsAt: row.endsAt ?? null,
+            excludeId: row._id,
+          },
+          session
+        );
+      await row.save({ session });
+      await audit(req, "updated", "MemberMembership", String(row._id), String(member._id), session);
+      return row;
+    });
   } catch (error) {
-    if ((error as Error).name === "VersionError")
-      throw new ConflictError(
-        "This membership changed; reload and try again",
-        undefined,
-        "VERSION_CONFLICT"
-      );
+    if ((error as Error).name === "VersionError") throw versionConflict();
     throw error;
   }
-  await audit(req, "updated", "MemberMembership", String(row._id), String(member._id));
-  return row;
 }
 
 /** Member Benefits view. `used` is a placeholder 0 until the W6 ledger exists. */

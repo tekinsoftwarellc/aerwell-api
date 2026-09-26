@@ -157,5 +157,9 @@ describe("view preferences", () => {
         (await admin.send("put", "/me/view-preferences/member_appointment", body)).status
       ).toBe(400);
     expect((await admin.get("/me/view-preferences/bogus")).status).toBe(400);
+    expect((await admin.get("/me/view-preferences/member_profile")).body.data).toMatchObject({
+      layout: 2,
+      isDefault: true,
+    });
   });
 });

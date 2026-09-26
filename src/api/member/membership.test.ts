@@ -58,6 +58,12 @@ describe("membership records", () => {
     ).toBe(201);
     const open = await hold("aerwell-essential", { startedAt: "2027-01-01T00:00:00.000Z" });
     expect(open.status).toBe(409);
+    const [first] = (await admin.get(base())).body.data.items.filter(
+      (m: { endsAt: string | null }) => m.endsAt === "2026-06-01T00:00:00.000Z"
+    );
+    const extend = await admin.send("patch", `${base()}/${first._id}`, { endsAt: null });
+    expect(extend.status).toBe(409);
+    expect(extend.body.code).toBe("MEMBERSHIP_OVERLAP");
   });
   it("lets only one of two concurrent same-plan requests through", async () => {
     const results = await Promise.all([hold("aerwell-continuum"), hold("aerwell-continuum")]);

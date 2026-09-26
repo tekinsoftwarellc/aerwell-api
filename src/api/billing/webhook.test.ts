@@ -123,6 +123,26 @@ describe("Stripe webhook effects and idempotency", () => {
     );
     expect((await Invoice.findOne().lean())?.status).toBe("paid");
   });
+  it("lets paid win over finalized within the same second, and ignores a bad amount", async () => {
+    const t = now();
+    await deliver(
+      JSON.stringify({
+        ...JSON.parse(invoiceEvent("evt_fin", { status: "open" }, t)),
+        type: "invoice.finalized",
+      })
+    );
+    await deliver(invoiceEvent("evt_same_second_paid", {}, t));
+    expect((await Invoice.findOne().lean())?.status).toBe("paid");
+    await deliver(
+      JSON.stringify({
+        ...JSON.parse(invoiceEvent("evt_late_fin", { status: "open" }, t)),
+        type: "invoice.finalized",
+      })
+    );
+    expect((await Invoice.findOne().lean())?.status).toBe("paid");
+    await deliver(invoiceEvent("evt_bad_amount", { id: "in_other", amount_paid: "abc" }));
+    expect(await Invoice.countDocuments({ processorInvoiceId: "in_other" })).toBe(0);
+  });
   it("marks a failed payment and cancels a deleted subscription's membership", async () => {
     await deliver(
       JSON.stringify({

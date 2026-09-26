@@ -115,9 +115,19 @@ export async function markNotesRead(req: Request) {
   return { updated: result.modifiedCount };
 }
 
-const DEFAULT_VIEW = {
-  layout: 1,
-  columns: [["appointment", "health", "labs", "scans", "meds", "supps"]],
+// Figma defaults: the in-visit 1-column set, and the two-column profile overview.
+const DEFAULT_VIEWS: Record<string, { layout: number; columns: string[][] }> = {
+  member_appointment: {
+    layout: 1,
+    columns: [["appointment", "health", "labs", "scans", "meds", "supps"]],
+  },
+  member_profile: {
+    layout: 2,
+    columns: [
+      ["alfred", "health", "labs", "scans", "appointment"],
+      ["notes", "membership"],
+    ],
+  },
 };
 export async function getViewPreference(req: Request) {
   const staff = actor(req);
@@ -128,7 +138,11 @@ export async function getViewPreference(req: Request) {
   }).lean();
   return row
     ? { context: row.context, layout: row.layout, columns: row.columns, isDefault: false }
-    : { context: req.params["context"], ...DEFAULT_VIEW, isDefault: true };
+    : {
+        context: req.params["context"],
+        ...DEFAULT_VIEWS[String(req.params["context"])],
+        isDefault: true,
+      };
 }
 export async function putViewPreference(req: Request) {
   const staff = actor(req);

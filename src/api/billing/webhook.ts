@@ -52,6 +52,14 @@ const INVOICE_STATUS: Record<string, string> = {
   "invoice.voided": "void",
   "invoice.finalized": "open",
 };
+const STATUS_RANK: Record<string, number> = {
+  draft: 0,
+  open: 1,
+  failed: 2,
+  paid: 3,
+  void: 3,
+  refunded: 4,
+};
 const SUBSCRIPTION_STATUS: Record<string, string> = {
   active: "active",
   trialing: "active",
@@ -94,14 +102,22 @@ async function applyInvoice(event: StripeEvent, session: ClientSession): Promise
   if (!(status && invoiceId && member)) return false;
   const eventAt = new Date(event.created * 1000);
   const existing = await Invoice.findOne({ processorInvoiceId: invoiceId }).session(session);
-  // Out-of-order delivery: an older event never overwrites a newer state.
-  if (existing && existing.lastEventAt >= eventAt) return false;
+  // Out-of-order delivery: an older event never overwrites a newer state. Stripe
+  // timestamps are whole seconds, so within one second the later lifecycle state wins.
+  if (existing) {
+    const newer = existing.lastEventAt < eventAt;
+    const sameSecondProgress =
+      existing.lastEventAt.getTime() === eventAt.getTime() &&
+      (STATUS_RANK[status] ?? 0) > (STATUS_RANK[existing.status] ?? 0);
+    if (!(newer || sameSecondProgress)) return false;
+  }
   const amount = Number(status === "paid" ? object["amount_paid"] : object["amount_due"]);
+  if (!Number.isSafeInteger(amount) || amount < 0) return false;
   const fields = {
     organizationId: member.organizationId,
     memberId: member._id,
     description: str(object["description"]) ?? "",
-    amountCents: Number.isSafeInteger(amount) && amount >= 0 ? amount : 0,
+    amountCents: amount,
     currency: str(object["currency"]) ?? "usd",
     status,
     issuedAt: new Date(Number(object["created"] ?? event.created) * 1000),
@@ -161,7 +177,9 @@ export async function handleStripeEvent(event: StripeEvent) {
     });
     return { received: true, duplicate: false };
   } catch (error) {
-    if ((error as { code?: number }).code === 11000) return { received: true, duplicate: true };
+    const duplicate = error as { code?: number; keyPattern?: Record<string, unknown> };
+    if (duplicate.code === 11000 && duplicate.keyPattern?.["eventId"])
+      return { received: true, duplicate: true };
     throw error;
   }
 }

@@ -33,7 +33,11 @@ export function createStripeAdapter(secretKey: string, publishableKey: string): 
     }
     // Processor messages may echo request details; never forward them.
     if (!response.ok) throw failed();
-    return (await response.json()) as T;
+    try {
+      return (await response.json()) as T;
+    } catch {
+      throw failed();
+    }
   }
   return {
     configured: true,
