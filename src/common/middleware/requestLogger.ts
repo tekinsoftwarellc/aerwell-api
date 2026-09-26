@@ -1,32 +1,26 @@
 import pinoHttp from "pino-http";
 import { env } from "../../config/env.js";
-import { logger } from "../utils/logger.js";
+import { type Logger, logger } from "../utils/logger.js";
 
-export const requestLogger = pinoHttp({
-  logger,
-  autoLogging: env.NODE_ENV !== "test",
-  customLogLevel: (_req, res, err) => {
-    if (res.statusCode >= 500 || err) return "error";
-    if (res.statusCode >= 400) return "warn";
-    return "info";
-  },
-  customSuccessMessage: (req, res) => {
-    return `${req.method} ${req.url} ${res.statusCode}`;
-  },
-  customErrorMessage: (req, res) => {
-    return `${req.method} ${req.url} ${res.statusCode}`;
-  },
-  customProps: (req) => ({
-    requestId: (req as unknown as { requestId?: string }).requestId,
-    userAgent: req.headers["user-agent"],
-  }),
-  serializers: {
-    req: (req) => ({
-      method: req.method,
-      url: req.url,
+export const createRequestLogger = (log: Logger = logger, autoLogging = env.NODE_ENV !== "test") =>
+  pinoHttp({
+    logger: log,
+    autoLogging,
+    customLogLevel: (_req, res, err) => {
+      if (res.statusCode >= 500 || err) return "error";
+      if (res.statusCode >= 400) return "warn";
+      return "info";
+    },
+    // Raw URL paths and query strings can contain member identifiers or PHI.
+    customSuccessMessage: (req, res) => `${req.method} ${res.statusCode}`,
+    customErrorMessage: (req, res) => `${req.method} ${res.statusCode}`,
+    customProps: (req) => ({
+      requestId: (req as unknown as { requestId?: string }).requestId,
     }),
-    res: (res) => ({
-      statusCode: res.statusCode,
-    }),
-  },
-});
+    serializers: {
+      req: (req) => ({ method: req.method }),
+      res: (res) => ({ statusCode: res.statusCode }),
+    },
+  });
+
+export const requestLogger = createRequestLogger();

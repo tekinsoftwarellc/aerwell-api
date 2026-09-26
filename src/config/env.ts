@@ -12,6 +12,7 @@ export const envSchema = z
     CORS_ORIGIN: z.string().min(1).default("http://localhost:3200"),
     RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900_000),
     RATE_LIMIT_MAX: z.coerce.number().int().positive().default(100),
+    ALFRED_API_INTERNAL_URL: z.string().url().optional(),
     ALFRED_AUTH_URL: z.string().url().optional(),
     ALFRED_AUTH_JWKS_URL: z.string().url().optional(),
     ALFRED_AUTH_CLIENT_ID: z.string().optional(),

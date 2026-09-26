@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import pino from "pino";
+import pino, { type DestinationStream } from "pino";
 import { env } from "../../config/env.js";
 
 const isDevelopment = env.NODE_ENV === "development";
@@ -28,20 +28,57 @@ const resolveTransport = (): pino.TransportSingleOptions | undefined => {
   }
 };
 
-export const logger = pino({
-  level: isDevelopment ? "debug" : "info",
-  transport: resolveTransport(),
-  // pino only serializes Errors under the `err` key by default, and message/stack are
-  // non-enumerable — so the many `logger.error({ error }, "...")` sites across the codebase
-  // logged an empty object. Serializing both keys makes every one of them useful.
-  serializers: {
-    error: pino.stdSerializers.err,
-    err: pino.stdSerializers.err,
-  },
-  base: {
-    pid: false,
-  },
-  timestamp: pino.stdTimeFunctions.isoTime,
-});
+// Keep log messages constant. Structured sensitive values are redacted at the root
+// and common nested locations; whole request bodies and data payloads are removed.
+const sensitiveFields = [
+  "authorization",
+  "cookie",
+  "password",
+  "secret",
+  "client_secret",
+  "clientSecret",
+  "accessToken",
+  "refreshToken",
+  "access_token",
+  "refresh_token",
+  "token",
+  "email",
+  "name",
+  "firstName",
+  "lastName",
+  "fullName",
+  "phone",
+  "phoneNumber",
+  "dateOfBirth",
+  "dob",
+  "notes",
+  "note",
+  "noteBody",
+  "body",
+  "clinicalNotes",
+  "labValue",
+  "labValues",
+  "labResults",
+  "value",
+  "data",
+];
+const redactPaths = sensitiveFields.flatMap((field) => [field, `*.${field}`, `*.*.${field}`]);
 
+export const createLogger = (destination?: DestinationStream): pino.Logger => {
+  const options: pino.LoggerOptions = {
+    level: isDevelopment ? "debug" : "info",
+    transport: destination ? undefined : resolveTransport(),
+    redact: { paths: redactPaths, censor: "[REDACTED]" },
+    // Error messages/stacks may embed URLs, credentials or validation inputs.
+    serializers: {
+      error: (error: Error) => ({ type: error.name }),
+      err: (error: Error) => ({ type: error.name }),
+    },
+    base: { pid: false },
+    timestamp: pino.stdTimeFunctions.isoTime,
+  };
+  return destination ? pino(options, destination) : pino(options);
+};
+
+export const logger = createLogger();
 export type Logger = typeof logger;

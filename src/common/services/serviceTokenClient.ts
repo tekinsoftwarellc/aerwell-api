@@ -3,7 +3,9 @@ import { logger } from "../utils/logger.js";
 
 /** Aerwell service-to-service client credentials; no requests are made at startup. */
 interface OAuthTokenResponse {
+  // biome-ignore lint/style/useNamingConvention: external OAuth protocol field name.
   readonly access_token: string;
+  // biome-ignore lint/style/useNamingConvention: external OAuth protocol field name.
   readonly expires_in: number;
 }
 
@@ -33,7 +35,7 @@ export const getServiceToken = async (audience = "alfred-api", scope?: string): 
   const cached = cache.get(key);
   if (cached && Date.now() < cached.expiresAt) return cached.token;
 
-  if (!env.ALFRED_AUTH_URL || !env.ALFRED_AUTH_CLIENT_ID || !env.ALFRED_AUTH_CLIENT_SECRET) {
+  if (!(env.ALFRED_AUTH_URL && env.ALFRED_AUTH_CLIENT_ID && env.ALFRED_AUTH_CLIENT_SECRET)) {
     throw new ServiceTokenUnavailableError(
       "ALFRED_AUTH_URL / ALFRED_AUTH_CLIENT_ID / ALFRED_AUTH_CLIENT_SECRET not configured"
     );
@@ -49,10 +51,12 @@ export const getServiceToken = async (audience = "alfred-api", scope?: string): 
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
+        // biome-ignore lint/style/useNamingConvention: external OAuth protocol field name.
         Authorization: `Basic ${basic}`,
       },
       // `audience` is mandatory at alfred-auth (one callee per token, §2.2).
       body: new URLSearchParams({
+        // biome-ignore lint/style/useNamingConvention: external OAuth protocol field name.
         grant_type: "client_credentials",
         audience,
         ...(scope ? { scope } : {}),

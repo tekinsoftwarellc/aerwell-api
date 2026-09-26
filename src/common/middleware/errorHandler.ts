@@ -25,7 +25,7 @@ export const errorHandler: ErrorRequestHandler = (
   res: Response,
   _next: NextFunction
 ): void => {
-  logger.error({ name: err.name }, "Request failed");
+  logger.error({ errorType: err.name }, "Request failed");
   if (err instanceof AppError) {
     res
       .status(err.statusCode)

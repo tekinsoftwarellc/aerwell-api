@@ -13,7 +13,7 @@ export const connectDB = async (): Promise<void> => {
     logger.info("MongoDB connected");
 
     mongoose.connection.on("error", (err) => {
-      logger.error({ name: err.name }, "MongoDB connection error");
+      logger.error({ errorType: err.name }, "MongoDB connection error");
     });
 
     mongoose.connection.on("disconnected", () => {
@@ -25,7 +25,7 @@ export const connectDB = async (): Promise<void> => {
     });
   } catch (error) {
     logger.error(
-      { name: error instanceof Error ? error.name : "UnknownError" },
+      { errorType: error instanceof Error ? error.name : "UnknownError" },
       "MongoDB connection failed"
     );
     process.exit(1);
@@ -38,7 +38,7 @@ export const disconnectDB = async (): Promise<void> => {
     logger.info("MongoDB connection closed");
   } catch (error) {
     logger.error(
-      { name: error instanceof Error ? error.name : "UnknownError" },
+      { errorType: error instanceof Error ? error.name : "UnknownError" },
       "MongoDB disconnect failed"
     );
   }

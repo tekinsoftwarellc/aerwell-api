@@ -118,7 +118,7 @@
   },
   "overrides": [
     {
-      "include": ["src/config/env.ts", "src/config/swagger.ts", "src/common/utils/email.ts"],
+      "include": ["src/config/env.ts", "src/config/env.test.ts", "src/config/swagger.ts", "src/common/utils/email.ts"],
       "linter": {
         "rules": {
           "style": {

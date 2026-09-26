@@ -15,6 +15,7 @@ const ALLOWLIST = new Set<string>();
 
 /** `app._router.stack` layer → mount path, e.g. `/internal/accounts/{id}`. */
 const mountPath = (layer: {
+  // biome-ignore lint/style/useNamingConvention: private Express 4 router field.
   regexp: RegExp & { fast_slash?: boolean };
   keys?: Array<{ name: string | number }>;
 }): string => {
@@ -42,6 +43,7 @@ const mountedOperations = (app: Express): Set<string> => {
         name: string;
         route?: { path: string; methods: Record<string, boolean> };
         handle?: { stack?: unknown[] };
+        // biome-ignore lint/style/useNamingConvention: private Express 4 router field.
         regexp: RegExp & { fast_slash?: boolean };
         keys?: Array<{ name: string | number }>;
       };
@@ -84,7 +86,7 @@ describe("swagger spec vs mounted routes", () => {
   const documented = documentedOperations(swaggerSpec);
 
   it("documents every mounted route", () => {
-    const undocumented = [...mounted].filter((p) => !documented.has(p) && !ALLOWLIST.has(p));
+    const undocumented = [...mounted].filter((p) => !(documented.has(p) || ALLOWLIST.has(p)));
     expect(undocumented.sort()).toEqual([]);
   });
 

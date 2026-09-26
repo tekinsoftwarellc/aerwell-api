@@ -27,6 +27,7 @@ export const createMemoryCacheService = (): CacheService => {
     entry.expiresAt !== null && Date.now() > entry.expiresAt;
 
   return Object.freeze({
+    // biome-ignore lint/suspicious/useAwait: memory implementation preserves the asynchronous CacheService contract, including rejected errors.
     get: async <T>(key: string): Promise<T | null> => {
       const entry = store.get(key);
       if (!entry || isExpired(entry)) {
@@ -36,6 +37,7 @@ export const createMemoryCacheService = (): CacheService => {
       return JSON.parse(entry.value) as T;
     },
 
+    // biome-ignore lint/suspicious/useAwait: memory implementation preserves the asynchronous CacheService contract, including rejected errors.
     set: async (key: string, value: unknown, ttlSeconds?: number): Promise<void> => {
       const entry: CacheEntry = {
         value: JSON.stringify(value),
@@ -44,10 +46,12 @@ export const createMemoryCacheService = (): CacheService => {
       store.set(key, entry);
     },
 
+    // biome-ignore lint/suspicious/useAwait: memory implementation preserves the asynchronous CacheService contract, including rejected errors.
     del: async (key: string): Promise<void> => {
       store.delete(key);
     },
 
+    // biome-ignore lint/suspicious/useAwait: memory implementation preserves the asynchronous CacheService contract, including rejected errors.
     delByPattern: async (pattern: string): Promise<void> => {
       const regex = new RegExp(`^${pattern.replace(/\*/g, ".*").replace(/\?/g, ".")}$`);
       for (const key of store.keys()) {
@@ -57,6 +61,7 @@ export const createMemoryCacheService = (): CacheService => {
       }
     },
 
+    // biome-ignore lint/suspicious/useAwait: memory implementation preserves the asynchronous CacheService contract, including rejected errors.
     increment: async (key: string, ttlSeconds?: number): Promise<number> => {
       const existing = store.get(key);
       if (!existing || isExpired(existing)) {
