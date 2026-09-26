@@ -43,7 +43,7 @@ const labResult = new Schema(
     withinOptimal: { type: Boolean, default: null },
     isKey: { type: Boolean, default: false },
   },
-  { _id: false }
+  { _id: false, minimize: false }
 );
 const panelSchema = new Schema(
   {
@@ -62,7 +62,8 @@ const panelSchema = new Schema(
     results: { type: [labResult], default: [] },
     ...review,
   },
-  { timestamps: true }
+  // minimize:false keeps an empty range snapshot ({}) instead of dropping the key.
+  { timestamps: true, minimize: false }
 );
 panelSchema.index({ organizationId: 1, memberId: 1, drawnAt: -1 });
 export type LabPanelData = InferSchemaType<typeof panelSchema>;
@@ -134,7 +135,7 @@ const scanSchema = new Schema(
     },
     ...review,
   },
-  { timestamps: true }
+  { timestamps: true, minimize: false }
 );
 scanSchema.index({ organizationId: 1, memberId: 1, type: 1, performedAt: -1 });
 export type ScanData = InferSchemaType<typeof scanSchema>;

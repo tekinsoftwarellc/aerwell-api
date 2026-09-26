@@ -135,6 +135,11 @@ describe("lab panels", () => {
     expect(byKey["lipoprotein_a"]).toMatchObject({ status: null, value: null });
     // No catalog range was printed for the hormone panels: no status is guessed.
     expect(byKey["testosterone_total"]).toMatchObject({ status: null, withinOptimal: null });
+    // Mongo minimizes an empty range snapshot away; the read contract still carries {}.
+    const read = (await admin.get(path(`/lab-panels/${created.body.data._id}`))).body.data;
+    const unranged = read.results.find((r: { key: string }) => r.key === "testosterone_total");
+    expect(unranged.reference).toEqual({});
+    expect(unranged.normalLabel).toBeNull();
     expect(created.body.data.source).toBe("manual");
     expect(created.body.data.reviewStatus).toBe("new");
     const mismatch = await panel("2026-07-29T16:00:00Z", [result(ids["vitamin_d"], "22")]);
