@@ -14,7 +14,11 @@ declare global {
  * W1 authentication must validate it against AERWELL_ORG_ID and the staff record;
  * caller-supplied headers never select a different organization.
  */
-export const requireOrganizationScope = (req: Request, _res: Response, next: NextFunction): void => {
+export const requireOrganizationScope = (
+  req: Request,
+  _res: Response,
+  next: NextFunction
+): void => {
   if (!req.organizationId) {
     next(new ForbiddenError("Aerwell organization context is required for this operation."));
     return;
