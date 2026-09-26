@@ -3,6 +3,7 @@ import { DAY, pinClock } from "../../test/appointmentFixture.js";
 import { as } from "../../test/scheduleFixture.js";
 import { visitWorld } from "../../test/visitFixture.js";
 import { Notification } from "../notification/notification.model.js";
+import { onVisitSignal } from "./visit.events.js";
 
 // W7 x W9 integration: a visit run through the real routes (W6 status route,
 // W9 consent/summary) shows up on the provider's W7 dashboard, and only the
@@ -11,7 +12,7 @@ beforeEach(() => pinClock());
 afterEach(() => vi.useRealTimers());
 
 it("reflects in-progress and completed visits on the dashboard and notifies only defined events", async () => {
-  const v = await visitWorld(false); // the director books for the provider
+  const v = await visitWorld(false); // not started yet; the director is the actor, the provider the recipient
   const kinds = async () =>
     (await Notification.find({}).sort({ _id: 1 }).lean()).map((n) => n.kind);
   expect(await kinds()).toEqual(["appointment_booked"]);
@@ -43,4 +44,18 @@ it("reflects in-progress and completed visits on the dashboard and notifies only
 
   // Check-in, start, consent, revoke and complete have no W7 notification kind.
   expect(await kinds()).toEqual(["appointment_booked"]);
+});
+
+it("cancelling a visit in progress stops its capture and still notifies the provider", async () => {
+  const v = await visitWorld(); // started (in_progress) by the director
+  const signals: string[] = [];
+  const off = onVisitSignal((id, signal) => {
+    if (id === v.id) signals.push(signal);
+  });
+  const res = await v.api.post(`/api/v1/appointments/${v.id}/cancel`, { reason: "Member unwell" });
+  off();
+  expect(res.status).toBe(200);
+  expect(signals).toEqual(["visit_ended"]);
+  const kinds = (await Notification.find({}).sort({ _id: 1 }).lean()).map((n) => n.kind);
+  expect(kinds).toEqual(["appointment_booked", "appointment_cancelled"]);
 });
