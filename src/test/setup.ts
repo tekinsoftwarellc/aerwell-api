@@ -12,6 +12,8 @@ let mongoServer: MongoMemoryReplSet;
 beforeAll(async () => {
   mongoServer = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
   await mongoose.connect(mongoServer.getUri());
+  // Index builds are async; idempotency and uniqueness tests race them unless awaited.
+  await Promise.all(Object.values(mongoose.models).map((model) => model.init()));
 });
 afterEach(async () => {
   for (const collection of (await mongoose.connection.db?.collections()) ?? []) {
