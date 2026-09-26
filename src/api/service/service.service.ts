@@ -1,11 +1,22 @@
 import type { Request } from "express";
 import { type FilterQuery, type InferSchemaType, Types } from "mongoose";
-import { BadRequestError, ForbiddenError, NotFoundError } from "../../common/errors/AppError.js";
-import { audit } from "../audit/audit.js";
+import {
+  BadRequestError,
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+} from "../../common/errors/AppError.js";
+import { Market } from "../catalog/catalog.model.js";
+import {
+  assertExpectedVersion,
+  inCatalogTransaction,
+  recordRevisions,
+  saveVersioned,
+} from "../catalog/versioning.js";
 import { Environment, Location } from "../location/location.model.js";
 import { Role } from "../role/role.model.js";
 import { StaffMember } from "../staff/staff.model.js";
-import { MembershipPlan, Service, ServiceCategory } from "./service.model.js";
+import { Service, ServiceCategory } from "./service.model.js";
 import {
   type ServiceInput,
   bulkSchema,
@@ -30,7 +41,10 @@ export function catalogScope(req: Request): FilterQuery<ServiceData> {
 }
 async function serialize(doc: InstanceType<typeof Service>) {
   const raw = doc.toObject();
-  const { __v, _id, imageKey, ...value } = raw;
+  const { __v, _id, imageKey, membershipAccess, ...value } = raw as typeof raw & {
+    __v?: number;
+    membershipAccess?: unknown;
+  };
   return {
     ...value,
     id: String(_id),
@@ -38,30 +52,39 @@ async function serialize(doc: InstanceType<typeof Service>) {
     scheduledCount: 0,
   };
 }
-async function validateMemberships(organizationId: string, input: ServiceInput) {
-  for (const access of input.membershipAccess) {
-    const plan = await MembershipPlan.findOne({ _id: access.membershipPlanId, organizationId });
-    if (!plan) throw new BadRequestError("Select a membership plan from this organization");
-    const tiers = plan.tiers.filter((t) => t.active).map((t) => t.id);
-    const requested = access.tiers.map((t) => t.tierId);
-    if (
-      new Set(requested).size !== requested.length ||
-      tiers.length !== requested.length ||
-      requested.some((t) => !tiers.includes(t))
-    )
-      throw new BadRequestError("Provide each active membership tier exactly once");
-    if (plan.brand === "everhaus" && access.enabled && access.tiers.some((t) => t.mode === "off"))
-      throw new BadRequestError(
-        "Everhaus membership access must be Included or Paid; disable the group to turn it off"
-      );
-  }
+async function validateCatalogLinks(organizationId: string, input: ServiceInput, selfId?: string) {
+  const markets = await Market.countDocuments({ _id: { $in: input.marketIds }, organizationId });
+  if (markets !== input.marketIds.length)
+    throw new BadRequestError("Select markets from this organization");
+  if (!input.bundleComponentIds.length) return;
+  if (selfId && input.bundleComponentIds.includes(selfId))
+    throw new BadRequestError("A bundle cannot contain itself");
+  const components = await Service.find({
+    _id: { $in: input.bundleComponentIds },
+    organizationId,
+    deletedAt: null,
+  }).select("bundleComponentIds");
+  if (components.length !== input.bundleComponentIds.length)
+    throw new BadRequestError("Select bundle components from this organization's catalog");
+  if (components.some((c) => c.bundleComponentIds.length))
+    throw new BadRequestError("A bundle component cannot itself be a bundle");
+  if (
+    selfId &&
+    (await Service.exists({ organizationId, bundleComponentIds: selfId, deletedAt: null }))
+  )
+    throw new BadRequestError("This service is a bundle component and cannot become a bundle");
 }
-async function validateReferences(req: Request, input: ServiceInput) {
+async function validateReferences(req: Request, input: ServiceInput, selfId?: string) {
   const organizationId = req.staff?.organizationId ?? "";
   const checks = await Promise.all([
     ServiceCategory.exists({ _id: input.categoryId, organizationId }),
-    Location.exists({ _id: input.locationId, organizationId }),
-    Environment.exists({ _id: input.environmentId, locationId: input.locationId, organizationId }),
+    !input.locationId || Location.exists({ _id: input.locationId, organizationId }),
+    !input.environmentId ||
+      Environment.exists({
+        _id: input.environmentId,
+        locationId: input.locationId,
+        organizationId,
+      }),
   ]);
   if (checks.some((v) => !v))
     throw new BadRequestError("Select a category, location and environment from this organization");
@@ -84,13 +107,14 @@ async function validateReferences(req: Request, input: ServiceInput) {
     (!req.staff?.roleId || input.assignedTeamRoleId !== String(req.staff.roleId))
   )
     throw new ForbiddenError("Own services must be assigned to you or your team");
-  await validateMemberships(organizationId, input);
+  await validateCatalogLinks(organizationId, input, selfId);
 }
 export async function listServices(req: Request) {
   const query = listSchema.parse(req.query);
   const filter = catalogScope(req);
   if (query.status) filter.status = query.status;
   if (query.categoryId) filter.categoryId = query.categoryId;
+  if (query.owner) filter.owner = query.owner;
   if (query.q)
     filter.title = { $regex: query.q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" };
   const [docs, total] = await Promise.all([
@@ -134,17 +158,35 @@ async function applyImage(req: Request, input: ServiceInput) {
     };
   return {};
 }
+async function uniqueSlug(organizationId: string, title: string) {
+  const root =
+    title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60) || "service";
+  if (!(await Service.exists({ organizationId, slug: root }))) return root;
+  return `${root}-${new Types.ObjectId().toHexString().slice(-6)}`;
+}
 export async function createService(req: Request) {
   const input = serviceCreateSchema.parse(req.body);
   await validateReferences(req, input);
+  const organizationId = req.staff?.organizationId ?? "";
+  if (input.slug && (await Service.exists({ organizationId, slug: input.slug })))
+    throw new ConflictError(
+      "Another service already uses this identifier",
+      undefined,
+      "SLUG_TAKEN"
+    );
   const { imageUploadId, removeImage, ...data } = input;
   const image = await applyImage(req, input);
-  const doc = await Service.create({
+  const doc = new Service({
     ...data,
     ...image,
-    organizationId: req.staff?.organizationId,
+    slug: input.slug ?? (await uniqueSlug(organizationId, input.title)),
+    organizationId,
   });
-  await audit(req, "created", "service", String(doc._id));
+  await saveVersioned(req, "service", doc, "created");
   return serialize(doc);
 }
 function editable(doc: InstanceType<typeof Service>) {
@@ -154,8 +196,13 @@ function editable(doc: InstanceType<typeof Service>) {
     description: doc.description,
     status: doc.status,
     categoryId: String(doc.categoryId),
-    locationId: String(doc.locationId),
-    environmentId: String(doc.environmentId),
+    owner: doc.owner,
+    modality: doc.modality,
+    marketScope: doc.marketScope,
+    marketIds: doc.marketIds.map(String),
+    bundleComponentIds: doc.bundleComponentIds.map(String),
+    locationId: doc.locationId ? String(doc.locationId) : null,
+    environmentId: doc.environmentId ? String(doc.environmentId) : null,
     durationMinutes: doc.durationMinutes,
     capacityMin: doc.capacityMin,
     capacityMax: doc.capacityMax,
@@ -167,28 +214,19 @@ function editable(doc: InstanceType<typeof Service>) {
         ? {}
         : { amountCents: doc.lateCancellationFee.amountCents }),
     },
-    membershipAccess: doc.membershipAccess.map((m) => ({
-      membershipPlanId: String(m.membershipPlanId),
-      enabled: m.enabled,
-      tiers: m.tiers.map((t) => ({
-        tierId: t.tierId,
-        mode: t.mode,
-        ...(t.priceCents === undefined ? {} : { priceCents: t.priceCents }),
-      })),
-    })),
     assignedStaffIds: doc.assignedStaffIds.map(String),
     assignedTeamRoleId: doc.assignedTeamRoleId ? String(doc.assignedTeamRoleId) : null,
   };
 }
 export async function patchService(req: Request) {
-  const patch = servicePatchSchema.parse(req.body);
+  const { expectedVersion, ...patch } = servicePatchSchema.parse(req.body);
   const doc = await findService(req);
+  assertExpectedVersion(doc, expectedVersion);
   const input = serviceCreateSchema.parse({ ...editable(doc), ...patch });
-  await validateReferences(req, input);
-  const { imageUploadId, removeImage, ...data } = input;
+  await validateReferences(req, input, String(doc._id));
+  const { imageUploadId, removeImage, slug, ...data } = input;
   doc.set({ ...data, ...(await applyImage(req, input)) });
-  await doc.save();
-  await audit(req, "updated", "service", String(doc._id));
+  await saveVersioned(req, "service", doc, "updated");
   return serialize(doc);
 }
 export async function bulkServices(req: Request) {
@@ -200,21 +238,21 @@ export async function bulkServices(req: Request) {
     action === "archive"
       ? { deletedAt: new Date(), status: "inactive" }
       : { status: action === "activate" ? "active" : "inactive" };
-  const result = await Service.updateMany(filter, { $set: change });
-  for (const id of ids) await audit(req, action, "service", id);
-  return { updated: result.matchedCount };
+  return inCatalogTransaction(async (session) => {
+    const result = await Service.updateMany(
+      filter,
+      { $set: change, $inc: { version: 1 } },
+      { session }
+    );
+    const docs = await Service.find({ _id: { $in: ids } }).session(session);
+    await recordRevisions(req, "service", docs, action, session);
+    return { updated: result.matchedCount };
+  });
 }
 export async function getCategories(req: Request) {
   return (
     await ServiceCategory.find({ organizationId: req.staff?.organizationId })
       .sort({ sortOrder: 1 })
-      .lean()
-  ).map(({ _id, organizationId, __v, ...v }) => ({ ...v, id: String(_id) }));
-}
-export async function getPlans(req: Request) {
-  return (
-    await MembershipPlan.find({ organizationId: req.staff?.organizationId })
-      .sort({ name: 1 })
       .lean()
   ).map(({ _id, organizationId, __v, ...v }) => ({ ...v, id: String(_id) }));
 }

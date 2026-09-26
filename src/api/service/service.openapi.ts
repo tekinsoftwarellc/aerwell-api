@@ -1,29 +1,45 @@
 const id = { type: "string", pattern: "^[a-fA-F0-9]{24}$" };
 const cents = { type: "integer", minimum: 0, maximum: 100000000 };
-const tier = {
-  type: "object",
-  additionalProperties: false,
-  required: ["tierId", "mode"],
-  properties: {
-    tierId: { type: "string" },
-    mode: { type: "string", enum: ["off", "included", "paid"] },
-    priceCents: cents,
-  },
-  description:
-    "priceCents is required only for paid tiers. Every active plan tier must appear exactly once. Enabled Everhaus permits included or paid only.",
-};
 const fields = {
   title: { type: "string", minLength: 1, maxLength: 160 },
   shortName: { type: "string", maxLength: 50 },
   description: { type: "string", maxLength: 3000 },
   status: { type: "string", enum: ["active", "inactive"] },
+  slug: {
+    type: "string",
+    pattern: "^[a-z0-9]+(?:[-_][a-z0-9]+)*$",
+    maxLength: 80,
+    description:
+      "Stable identifier; set on create (generated from title if omitted), never patched",
+  },
+  owner: { type: "string", enum: ["aerwell", "everhaus"], default: "aerwell" },
+  modality: { type: "string", enum: ["physical", "virtual"], default: "physical" },
+  marketScope: {
+    type: "string",
+    enum: ["all", "listed"],
+    default: "listed",
+    description: "listed with no marketIds = offered nowhere",
+  },
+  marketIds: { type: "array", maxItems: 50, uniqueItems: true, items: id },
+  bundleComponentIds: {
+    type: "array",
+    maxItems: 20,
+    uniqueItems: true,
+    items: id,
+    description:
+      "Components of a bundle; components cannot be bundles; bundle price is basePriceCents",
+  },
   categoryId: id,
-  locationId: id,
-  environmentId: id,
+  locationId: { ...id, nullable: true },
+  environmentId: { ...id, nullable: true, description: "Requires locationId" },
   durationMinutes: { type: "integer", minimum: 1, maximum: 1440 },
   capacityMin: { type: "integer", minimum: 1, maximum: 1000 },
   capacityMax: { type: "integer", minimum: 1, maximum: 1000 },
-  basePriceCents: cents,
+  basePriceCents: {
+    ...cents,
+    nullable: true,
+    description: "Retail price; null = not sold at retail",
+  },
   lateCancellationFee: {
     type: "object",
     additionalProperties: false,
@@ -34,20 +50,6 @@ const fields = {
       windowHours: { type: "integer", minimum: 1, maximum: 720, default: 24 },
     },
     description: "Positive amountCents required when enabled.",
-  },
-  membershipAccess: {
-    type: "array",
-    maxItems: 20,
-    items: {
-      type: "object",
-      additionalProperties: false,
-      required: ["membershipPlanId", "enabled", "tiers"],
-      properties: {
-        membershipPlanId: id,
-        enabled: { type: "boolean" },
-        tiers: { type: "array", minItems: 1, maxItems: 20, items: tier },
-      },
-    },
   },
   assignedStaffIds: { type: "array", maxItems: 100, uniqueItems: true, items: id },
   assignedTeamRoleId: { ...id, nullable: true },
@@ -64,6 +66,7 @@ const service = {
       format: "uri",
       description: "Private signed image URL, expires within 300 seconds",
     },
+    version: { type: "integer", minimum: 0, description: "Optimistic-concurrency version" },
     createdAt: { type: "string", format: "date-time" },
     updatedAt: { type: "string", format: "date-time" },
     scheduledCount: {
@@ -106,6 +109,7 @@ const op = (
     401: response("Session expired", error),
     403: response("SERVICES permission or assignment scope denied", error),
     404: response("Service not found in your scope", error),
+    409: response("Slug taken or stale expectedVersion", error),
     503: response("Storage not configured", error),
   },
   ...extra,
@@ -137,6 +141,7 @@ export const servicePaths = {
           { in: "query", name: "q", schema: { type: "string", maxLength: 160 } },
           { in: "query", name: "status", schema: fields.status },
           { in: "query", name: "categoryId", schema: id },
+          { in: "query", name: "owner", schema: fields.owner },
           { in: "query", name: "page", schema: { type: "integer", minimum: 1, default: 1 } },
           {
             in: "query",
@@ -156,8 +161,6 @@ export const servicePaths = {
           required: [
             "title",
             "categoryId",
-            "locationId",
-            "environmentId",
             "durationMinutes",
             "capacityMin",
             "capacityMax",
@@ -177,7 +180,14 @@ export const servicePaths = {
         type: "object",
         additionalProperties: false,
         minProperties: 1,
-        properties: fields,
+        properties: {
+          ...Object.fromEntries(Object.entries(fields).filter(([key]) => key !== "slug")),
+          expectedVersion: {
+            type: "integer",
+            minimum: 0,
+            description: "409 VERSION_CONFLICT if stale",
+          },
+        },
       }),
     }),
   },
@@ -259,7 +269,7 @@ export const servicePaths = {
     ),
   },
   "/api/v1/service-categories": {
-    get: op("Six configured service categories", {
+    get: op("Configured service categories", {
       type: "array",
       items: {
         type: "object",
@@ -268,33 +278,6 @@ export const servicePaths = {
           name: { type: "string" },
           color: { type: "string" },
           sortOrder: { type: "integer" },
-        },
-      },
-    }),
-  },
-  "/api/v1/membership-plans": {
-    get: op("Standalone local plans; pending prices are never fabricated", {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          id,
-          name: { type: "string" },
-          brand: { type: "string", enum: ["aerwell", "everhaus"] },
-          tiers: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                id: { type: "string" },
-                name: { type: "string" },
-                billingTerm: { type: "string", enum: ["monthly", "quarterly", "bi_annual"] },
-                priceCents: cents,
-                pricePending: { type: "boolean" },
-                active: { type: "boolean" },
-              },
-            },
-          },
         },
       },
     }),

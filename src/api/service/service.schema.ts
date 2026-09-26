@@ -1,32 +1,38 @@
 import { z } from "zod";
+import { OWNERS } from "../entitlement/entitlement.types.js";
 export const objectId = z.string().regex(/^[a-f\d]{24}$/i, "Choose a valid record");
-const cents = z.number().int().min(0).max(100_000_000);
-const tier = z
-  .object({
-    tierId: z.string().min(1).max(80),
-    mode: z.enum(["off", "included", "paid"]),
-    priceCents: cents.optional(),
-  })
-  .strict()
-  .superRefine((v, c) => {
-    if (v.mode === "paid" && v.priceCents === undefined)
-      c.addIssue({ code: "custom", path: ["priceCents"], message: "Paid access requires a price" });
-    if (v.mode !== "paid" && v.priceCents !== undefined)
-      c.addIssue({ code: "custom", path: ["priceCents"], message: "Only paid access has a price" });
-  });
+export const cents = z.number().int().min(0).max(100_000_000);
+export const slug = z
+  .string()
+  .trim()
+  .min(2)
+  .max(80)
+  .regex(/^[a-z0-9]+(?:[-_][a-z0-9]+)*$/, "Use lowercase letters, numbers and single dashes");
+const uniqueIds = (max: number, label: string) =>
+  z
+    .array(objectId)
+    .max(max)
+    .refine((ids) => new Set(ids).size === ids.length, `${label} must be unique`)
+    .default([]);
 const serviceObject = z
   .object({
     title: z.string().trim().min(1).max(160),
     shortName: z.string().trim().max(50).optional(),
     description: z.string().trim().max(3000).default(""),
     status: z.enum(["active", "inactive"]).default("active"),
+    slug: slug.optional(),
+    owner: z.enum(OWNERS).default("aerwell"),
+    modality: z.enum(["physical", "virtual"]).default("physical"),
+    marketScope: z.enum(["all", "listed"]).default("listed"),
+    marketIds: uniqueIds(50, "Markets"),
+    bundleComponentIds: uniqueIds(20, "Bundle components"),
     categoryId: objectId,
-    locationId: objectId,
-    environmentId: objectId,
+    locationId: objectId.nullable().default(null),
+    environmentId: objectId.nullable().default(null),
     durationMinutes: z.number().int().min(1).max(1440),
     capacityMin: z.number().int().min(1).max(1000),
     capacityMax: z.number().int().min(1).max(1000),
-    basePriceCents: cents,
+    basePriceCents: cents.nullable(),
     lateCancellationFee: z
       .object({
         enabled: z.boolean(),
@@ -35,18 +41,6 @@ const serviceObject = z
       })
       .strict()
       .default({ enabled: false, windowHours: 24 }),
-    membershipAccess: z
-      .array(
-        z
-          .object({
-            membershipPlanId: objectId,
-            enabled: z.boolean(),
-            tiers: z.array(tier).min(1).max(20),
-          })
-          .strict()
-      )
-      .max(20)
-      .default([]),
     assignedStaffIds: z.array(objectId).max(100).default([]),
     assignedTeamRoleId: objectId.nullable().optional(),
     imageUploadId: objectId.optional(),
@@ -75,11 +69,17 @@ export const serviceCreateSchema = serviceObject.superRefine((v, c) => {
       path: ["assignedStaffIds"],
       message: "Staff assignments must be unique",
     });
-  if (new Set(v.membershipAccess.map((m) => m.membershipPlanId)).size !== v.membershipAccess.length)
+  if (v.environmentId && !v.locationId)
     c.addIssue({
       code: "custom",
-      path: ["membershipAccess"],
-      message: "Membership plans must be unique",
+      path: ["environmentId"],
+      message: "Choose a location for this environment",
+    });
+  if (v.marketScope === "all" && v.marketIds.length)
+    c.addIssue({
+      code: "custom",
+      path: ["marketIds"],
+      message: "Markets apply only to listed availability",
     });
   if (v.removeImage && v.imageUploadId)
     c.addIssue({
@@ -88,8 +88,11 @@ export const serviceCreateSchema = serviceObject.superRefine((v, c) => {
       message: "Choose an image or remove it",
     });
 });
+// slug is a stable identifier: set once at creation, never patched.
 export const servicePatchSchema = serviceObject
+  .omit({ slug: true })
   .partial()
+  .extend({ expectedVersion: z.number().int().min(0).optional() })
   .refine((v) => Object.keys(v).length > 0, "Supply a field to update");
 export type ServiceInput = z.infer<typeof serviceCreateSchema>;
 export const listSchema = z
@@ -97,6 +100,7 @@ export const listSchema = z
     q: z.string().trim().max(160).optional(),
     status: z.enum(["active", "inactive"]).optional(),
     categoryId: objectId.optional(),
+    owner: z.enum(OWNERS).optional(),
     page: z.coerce.number().int().min(1).default(1),
     limit: z.coerce.number().int().min(1).max(100).default(20),
   })

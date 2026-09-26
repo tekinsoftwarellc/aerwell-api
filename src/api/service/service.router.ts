@@ -9,14 +9,13 @@ import {
   createService,
   getCatalogLookups,
   getCategories,
-  getPlans,
   getService,
   listServices,
   patchService,
 } from "./service.service.js";
 import { presignServiceImage } from "./serviceImage.service.js";
 export const serviceRouter = Router();
-serviceRouter.use(["/services", "/service-categories", "/membership-plans"], authenticate);
+serviceRouter.use(["/services", "/service-categories"], authenticate);
 const view = requirePermission("SERVICES", "view");
 const edit = requirePermission("SERVICES", "edit");
 serviceRouter.get(
@@ -82,12 +81,5 @@ serviceRouter.get(
   view,
   asyncHandler(async (req, res) => {
     res.json(ServiceResponse.success("Service categories", await getCategories(req)));
-  })
-);
-serviceRouter.get(
-  "/membership-plans",
-  view,
-  asyncHandler(async (req, res) => {
-    res.json(ServiceResponse.success("Membership plans", await getPlans(req)));
   })
 );

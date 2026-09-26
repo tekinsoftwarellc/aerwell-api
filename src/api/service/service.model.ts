@@ -1,4 +1,5 @@
 import { Schema, model } from "mongoose";
+import { OWNERS } from "../entitlement/entitlement.types.js";
 const categorySchema = new Schema(
   {
     organizationId: { type: String, required: true, index: true },
@@ -10,36 +11,6 @@ const categorySchema = new Schema(
 );
 categorySchema.index({ organizationId: 1, name: 1 }, { unique: true });
 export const ServiceCategory = model("ServiceCategory", categorySchema);
-const planSchema = new Schema(
-  {
-    organizationId: { type: String, required: true, index: true },
-    name: { type: String, required: true },
-    brand: { type: String, enum: ["aerwell", "everhaus"], required: true },
-    tiers: {
-      type: [
-        new Schema(
-          {
-            id: { type: String, required: true },
-            name: { type: String, required: true },
-            billingTerm: {
-              type: String,
-              enum: ["monthly", "quarterly", "bi_annual"],
-              default: "monthly",
-            },
-            priceCents: { type: Number, min: 0 },
-            pricePending: { type: Boolean, default: true },
-            active: { type: Boolean, default: true },
-          },
-          { _id: false }
-        ),
-      ],
-      required: true,
-    },
-  },
-  { timestamps: true }
-);
-planSchema.index({ organizationId: 1, brand: 1 }, { unique: true });
-export const MembershipPlan = model("MembershipPlan", planSchema);
 const serviceSchema = new Schema(
   {
     organizationId: { type: String, required: true, index: true },
@@ -49,12 +20,20 @@ const serviceSchema = new Schema(
     imageKey: String,
     status: { type: String, enum: ["active", "inactive"], default: "active" },
     categoryId: { type: Schema.Types.ObjectId, ref: "ServiceCategory", required: true },
-    locationId: { type: Schema.Types.ObjectId, ref: "Location", required: true },
-    environmentId: { type: Schema.Types.ObjectId, ref: "Environment", required: true },
+    slug: String,
+    owner: { type: String, enum: OWNERS, default: "aerwell" },
+    modality: { type: String, enum: ["physical", "virtual"], default: "physical" },
+    // "listed" with no markets = offered nowhere (fail closed).
+    marketScope: { type: String, enum: ["all", "listed"], default: "listed" },
+    marketIds: { type: [{ type: Schema.Types.ObjectId, ref: "Market" }], default: [] },
+    bundleComponentIds: { type: [{ type: Schema.Types.ObjectId, ref: "Service" }], default: [] },
+    locationId: { type: Schema.Types.ObjectId, ref: "Location", default: null },
+    environmentId: { type: Schema.Types.ObjectId, ref: "Environment", default: null },
     durationMinutes: { type: Number, required: true, min: 1 },
     capacityMin: { type: Number, required: true, min: 1 },
     capacityMax: { type: Number, required: true, min: 1 },
-    basePriceCents: { type: Number, required: true, min: 0 },
+    // Null = no retail price (entitlement-only, e.g. Sanctuary).
+    basePriceCents: { type: Number, min: 0, default: null },
     lateCancellationFee: {
       type: new Schema(
         {
@@ -66,40 +45,15 @@ const serviceSchema = new Schema(
       ),
       default: () => ({ enabled: false, windowHours: 24 }),
     },
-    membershipAccess: {
-      type: [
-        new Schema(
-          {
-            membershipPlanId: {
-              type: Schema.Types.ObjectId,
-              ref: "MembershipPlan",
-              required: true,
-            },
-            enabled: { type: Boolean, required: true },
-            tiers: {
-              type: [
-                new Schema(
-                  {
-                    tierId: { type: String, required: true },
-                    mode: { type: String, enum: ["off", "included", "paid"], required: true },
-                    priceCents: { type: Number, min: 0 },
-                  },
-                  { _id: false }
-                ),
-              ],
-              default: [],
-            },
-          },
-          { _id: false }
-        ),
-      ],
-      default: [],
-    },
     assignedStaffIds: { type: [{ type: Schema.Types.ObjectId, ref: "StaffMember" }], default: [] },
     assignedTeamRoleId: { type: Schema.Types.ObjectId, ref: "Role", default: null },
     deletedAt: { type: Date, default: null },
   },
-  { timestamps: true }
+  { timestamps: true, versionKey: "version", optimisticConcurrency: true }
+);
+serviceSchema.index(
+  { organizationId: 1, slug: 1 },
+  { unique: true, partialFilterExpression: { slug: { $type: "string" } } }
 );
 serviceSchema.index({ organizationId: 1, deletedAt: 1, status: 1, categoryId: 1, createdAt: -1 });
 export const Service = model("Service", serviceSchema);

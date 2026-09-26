@@ -20,7 +20,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "smoke": "node scripts/smoke.mjs",
-    "seed:dev": "tsx src/scripts/seed.ts"
+    "seed:dev": "tsx src/scripts/seed.ts",
+    "migrate:catalog": "tsx src/scripts/migrate-catalog.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1002.0",

@@ -5,10 +5,11 @@ import { createServer } from "../../server.js";
 import { AuditEvent } from "../audit/audit.js";
 import { StaffCredential } from "../auth/auth.model.js";
 import { hashPassword } from "../auth/password.js";
+import { Market } from "../catalog/catalog.model.js";
 import { Environment, Location } from "../location/location.model.js";
 import { StaffMember } from "../staff/staff.model.js";
-import { MembershipPlan, Service, ServiceCategory } from "./service.model.js";
-import { seedCatalog } from "./service.seed.js";
+import { Service, ServiceCategory } from "./service.model.js";
+import { seedCatalog, seedCategories } from "./service.seed.js";
 const imageMocks = vi.hoisted(() => ({ presign: vi.fn(), attach: vi.fn(), url: vi.fn() }));
 vi.mock("./serviceImage.service.js", () => ({
   presignServiceImage: imageMocks.presign,
@@ -20,7 +21,7 @@ let token: string;
 let actor: InstanceType<typeof StaffMember>;
 let base: Record<string, unknown>;
 let categoryId: string;
-let planId: string;
+let marketId: string;
 const auth = () => ({ authorization: `Bearer ${token}` });
 beforeEach(async () => {
   imageMocks.url.mockResolvedValue(undefined);
@@ -44,11 +45,12 @@ beforeEach(async () => {
       .post("/api/v1/auth/login")
       .send({ email: actor.email, password: "Test-catalog-password!1" })
   ).body.data.accessToken;
-  await seedCatalog("org-test");
+  await seedCategories("org-test");
   const category = await ServiceCategory.findOne({ organizationId: "org-test" });
-  const plan = await MembershipPlan.findOne({ organizationId: "org-test", brand: "aerwell" });
   categoryId = String(category?._id);
-  planId = String(plan?._id);
+  marketId = String(
+    (await Market.create({ organizationId: "org-test", slug: "las-vegas", name: "Las Vegas" }))._id
+  );
   const location = await Location.create({ organizationId: "org-test", name: "Clinic" });
   const environment = await Environment.create({
     organizationId: "org-test",
@@ -66,48 +68,40 @@ beforeEach(async () => {
     basePriceCents: 10000,
     status: "active",
     lateCancellationFee: { enabled: false, windowHours: 24 },
-    membershipAccess: [
-      {
-        membershipPlanId: planId,
-        enabled: true,
-        tiers: [
-          { tierId: "tier-1", mode: "included" },
-          { tierId: "tier-2", mode: "paid", priceCents: 5000 },
-          { tierId: "tier-3", mode: "off" },
-        ],
-      },
-    ],
+    owner: "aerwell",
+    modality: "physical",
+    marketScope: "listed",
+    marketIds: [marketId],
   };
 });
 const create = (body: Record<string, unknown> = base) =>
   request(app).post("/api/v1/services").set(auth()).send(body);
-it("seeds six screenshot categories and two pending-price plans idempotently", async () => {
+it("seeds eight categories and the four client plans idempotently", async () => {
   await seedCatalog("org-test");
-  expect(await ServiceCategory.countDocuments()).toBe(6);
-  expect(await MembershipPlan.countDocuments()).toBe(2);
+  await seedCatalog("org-test");
+  expect(await ServiceCategory.countDocuments()).toBe(8);
   const cats = await request(app).get("/api/v1/service-categories").set(auth());
   expect(cats.status).toBe(200);
-  expect(cats.body.data).toHaveLength(6);
+  expect(cats.body.data).toHaveLength(8);
   const plans = await request(app).get("/api/v1/membership-plans").set(auth());
   expect(plans.status).toBe(200);
-  expect(plans.body.data.find((p: { brand: string }) => p.brand === "everhaus").tiers).toHaveLength(
-    1
-  );
-  expect(
-    plans.body.data.every((p: { tiers: { pricePending: boolean; priceCents?: number }[] }) =>
-      p.tiers.every((t) => t.pricePending && t.priceCents === undefined)
-    )
-  ).toBe(true);
+  expect(plans.body.data.map((p: { slug: string }) => p.slug)).toEqual([
+    "alfred-free",
+    "aerwell-continuum",
+    "aerwell-essential",
+    "everhaus-member",
+  ]);
 });
 it("creates, reads, updates, scopes lookups and audits real services", async () => {
   const saved = await create();
   expect(saved.status).toBe(201);
   const id = saved.body.data.id;
   expect(saved.body.data.scheduledCount).toBe(0);
-  expect(
-    (await request(app).get(`/api/v1/services/${id}`).set(auth())).body.data.membershipAccess[0]
-      .tiers[1].priceCents
-  ).toBe(5000);
+  const read = (await request(app).get(`/api/v1/services/${id}`).set(auth())).body.data;
+  expect(read).toMatchObject({ owner: "aerwell", marketScope: "listed", marketIds: [marketId] });
+  expect(read.slug).toBe("consultation");
+  expect(read.membershipAccess).toBeUndefined();
+  expect(read.version).toBe(0);
   const patched = await request(app)
     .patch(`/api/v1/services/${id}`)
     .set(auth())
@@ -185,47 +179,64 @@ it.each([
   { lateCancellationFee: { enabled: false, windowHours: 0 } },
   { imageKey: "foreign/key" },
   { assignedStaffIds: ["invalid"] },
-  { membershipAccess: [{ membershipPlanId: "invalid", enabled: true, tiers: [] }] },
+  { membershipAccess: [] },
+  { owner: "alfred" },
+  { modality: "hybrid" },
+  { marketScope: "all" },
+  { marketIds: ["bad"] },
+  { marketIds: ["a".repeat(24), "a".repeat(24)] },
+  { bundleComponentIds: ["bad"] },
+  { slug: "Not A Slug" },
+  { locationId: null },
 ])("rejects invalid service values %j", async (patch) => {
   expect((await create({ ...base, ...patch })).status).toBe(400);
 });
-it("rejects paid tiers without price, duplicate/incomplete tiers and off for enabled Everhaus", async () => {
-  for (const tiers of [
-    [
-      { tierId: "tier-1", mode: "paid" },
-      { tierId: "tier-2", mode: "off" },
-      { tierId: "tier-3", mode: "off" },
-    ],
-    [{ tierId: "tier-1", mode: "off" }],
-    [
-      { tierId: "tier-1", mode: "off" },
-      { tierId: "tier-1", mode: "off" },
-      { tierId: "tier-3", mode: "off" },
-    ],
-  ])
-    expect(
-      (
-        await create({
-          ...base,
-          membershipAccess: [{ membershipPlanId: planId, enabled: true, tiers }],
-        })
-      ).status
-    ).toBe(400);
-  const everhaus = await MembershipPlan.findOne({ brand: "everhaus" });
+it("supports null retail, optional location, slugs, bundles and version conflicts", async () => {
+  const member = await create({
+    ...base,
+    title: "Members Lounge",
+    basePriceCents: null,
+    locationId: null,
+    environmentId: null,
+    marketScope: "all",
+    marketIds: [],
+  });
+  expect(member.status).toBe(201);
+  expect(member.body.data).toMatchObject({
+    basePriceCents: null,
+    locationId: null,
+    slug: "members-lounge",
+  });
+  expect((await create({ ...base, slug: "members-lounge" })).status).toBe(409);
+  const again = await create({ ...base, title: "Members Lounge" });
+  expect(again.body.data.slug).toMatch(/^members-lounge-[a-f0-9]{6}$/);
+  const a = (await create({ ...base, title: "Part A" })).body.data.id;
+  const bundle = await create({ ...base, title: "Bundle", bundleComponentIds: [a] });
+  expect(bundle.status).toBe(201);
+  const bundleId = bundle.body.data.id;
+  const patch = (id: string, body: Record<string, unknown>) =>
+    request(app).patch(`/api/v1/services/${id}`).set(auth()).send(body);
+  expect((await patch(bundleId, { bundleComponentIds: [bundleId] })).status).toBe(400);
+  expect((await patch(a, { bundleComponentIds: [member.body.data.id] })).status).toBe(400);
+  expect((await create({ ...base, title: "Nested", bundleComponentIds: [bundleId] })).status).toBe(
+    400
+  );
   expect(
     (
       await create({
         ...base,
-        membershipAccess: [
-          {
-            membershipPlanId: String(everhaus?._id),
-            enabled: true,
-            tiers: [{ tierId: "membership", mode: "off" }],
-          },
-        ],
+        title: "Foreign",
+        bundleComponentIds: [String(new Types.ObjectId())],
       })
     ).status
   ).toBe(400);
+  expect((await create({ ...base, marketIds: [String(new Types.ObjectId())] })).status).toBe(400);
+  expect((await patch(a, { slug: "renamed" })).status).toBe(400);
+  const updated = await patch(a, { title: "Part A1", expectedVersion: 0 });
+  expect(updated.body.data.version).toBe(1);
+  const stale = await patch(a, { title: "Part A2", expectedVersion: 0 });
+  expect(stale.status).toBe(409);
+  expect(stale.body.code).toBe("VERSION_CONFLICT");
 });
 it("validates patched whole document and organization ownership of every reference", async () => {
   const saved = await create();

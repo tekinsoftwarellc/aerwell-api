@@ -7,6 +7,7 @@ import helmet from "helmet";
 import hpp from "hpp";
 import swaggerUi from "swagger-ui-express";
 import { createAuthRouter, meRouter } from "./api/auth/auth.router.js";
+import { catalogRouter } from "./api/catalog/catalog.router.js";
 import { healthRouter } from "./api/health/health.router.js";
 import { createInviteRouter } from "./api/invite/invite.router.js";
 import { serviceRouter } from "./api/service/service.router.js";
@@ -47,6 +48,7 @@ export const createServer = (cache: CacheService = createCacheService()): Expres
   app.use("/api/v1", staffRouter);
   app.use("/api/v1", uploadRouter);
   app.use("/api/v1", serviceRouter);
+  app.use("/api/v1", catalogRouter);
   app.use((_req, _res, next) => next(new NotFoundError("Route not found")));
   app.use(errorHandler);
   return app;

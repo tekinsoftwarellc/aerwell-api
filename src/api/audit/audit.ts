@@ -1,5 +1,5 @@
 import type { Request } from "express";
-import { Schema, model } from "mongoose";
+import { type ClientSession, Schema, model } from "mongoose";
 const schema = new Schema(
   {
     organizationId: { type: String, required: true, index: true },
@@ -37,10 +37,11 @@ export async function audit(
   action: string,
   targetType: string,
   targetId: string,
-  memberId?: string
+  memberId?: string,
+  session?: ClientSession
 ): Promise<void> {
   if (!req.staff) throw new Error("Audit actor missing");
-  await AuditEvent.create({
+  const event = {
     organizationId: req.staff.organizationId,
     actorId: String(req.staff._id),
     action,
@@ -48,5 +49,6 @@ export async function audit(
     targetId,
     memberId,
     requestId: req.requestId,
-  });
+  };
+  await AuditEvent.create([event], session ? { session } : {});
 }
