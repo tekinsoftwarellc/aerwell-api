@@ -91,10 +91,18 @@ const appointmentSchema = new Schema(
       ],
       default: [],
     },
-    // Visit-flow fields (W9); present but unused until then.
+    // Visit flow (W9): set when the visit starts (checked_in -> in_progress).
+    // Consent, transcript and suggestions live in their own collections (api/visit).
     visit: {
       type: new Schema(
-        { startedAt: Date, endedAt: Date, recordingConsentAt: Date, transcriptId: String },
+        {
+          startedAt: Date,
+          endedAt: Date,
+          recordingConsentAt: Date,
+          transcriptId: String,
+          summary: String,
+          suggestionsRequestedAt: Date,
+        },
         { _id: false }
       ),
       default: null,

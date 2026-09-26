@@ -21,6 +21,7 @@ import { serviceRouter } from "./api/service/service.router.js";
 import { settingsRouter } from "./api/settings/settings.router.js";
 import { staffRouter } from "./api/staff/staff.router.js";
 import { uploadRouter } from "./api/upload/upload.router.js";
+import { visitRouter } from "./api/visit/visit.router.js";
 import { NotFoundError } from "./common/errors/AppError.js";
 import { correlationId } from "./common/middleware/correlationId.js";
 import { errorHandler } from "./common/middleware/errorHandler.js";
@@ -66,6 +67,8 @@ export const createServer = (cache: CacheService = createCacheService()): Expres
   // W7 notifications + dashboard (appended; self-contained routers).
   app.use("/api/v1", notificationRouter);
   app.use("/api/v1", dashboardRouter);
+  // W9 visit workspace (appended; self-contained router). Live audio is attached in index.ts.
+  app.use("/api/v1", visitRouter);
   app.use((_req, _res, next) => next(new NotFoundError("Route not found")));
   app.use(errorHandler);
   return app;

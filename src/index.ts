@@ -1,4 +1,5 @@
 import { startNotificationJobs } from "./api/notification/producers.js";
+import { attachVisitSockets } from "./api/visit/visit.socket.js";
 import { logger } from "./common/utils/logger.js";
 import { connectDB, disconnectDB } from "./config/database.js";
 import { env } from "./config/env.js";
@@ -9,6 +10,8 @@ const server = createServer().listen(env.PORT, env.HOST, () => {
   logger.info({ port: env.PORT }, "Aerwell API listening");
 });
 const jobs = env.AERWELL_ORG_ID ? startNotificationJobs(env.AERWELL_ORG_ID) : undefined;
+// W9: authenticated WebSocket for live visit transcription (same HTTP server).
+const closeVisitSockets = attachVisitSockets(server);
 server.on("error", () => {
   logger.error("HTTP server failed");
   process.exit(1);
@@ -19,6 +22,7 @@ const shutdown = (): void => {
   shuttingDown = true;
   clearInterval(jobs);
   const timeout = setTimeout(() => process.exit(1), 10_000).unref();
+  closeVisitSockets();
   server.close(async () => {
     await disconnectDB();
     clearTimeout(timeout);

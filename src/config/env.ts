@@ -27,6 +27,13 @@ export const envSchema = z
     STRIPE_SECRET_KEY: z.string().startsWith("sk_").optional(),
     STRIPE_PUBLISHABLE_KEY: z.string().startsWith("pk_").optional(),
     STRIPE_WEBHOOK_SECRET: z.string().startsWith("whsec_").optional(),
+    // W9 visit transcription and next-step suggestions. AWS only (BAA): Transcribe
+    // Medical streaming, and Bedrock through `us.` cross-region inference profiles.
+    // Absent values leave the feature explicitly unconfigured.
+    TRANSCRIBE_REGION: z.string().min(1).optional(),
+    BEDROCK_REGION: z.string().min(1).optional(),
+    BEDROCK_MODEL_FAST: z.string().startsWith("us.").optional(),
+    BEDROCK_MODEL_SMART: z.string().startsWith("us.").optional(),
   })
   .refine((value) => value.NODE_ENV !== "production" || !value.CORS_ORIGIN.includes("*"), {
     path: ["CORS_ORIGIN"],

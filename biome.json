@@ -130,6 +130,26 @@
       }
     },
     {
+      "include": ["src/api/visit/transcribe.adapter.ts", "src/api/visit/adapters.test.ts", "src/api/visit/visit.socket.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useNamingConvention": "off"
+          }
+        }
+      }
+    },
+    {
+      "include": ["src/api/visit/adapters.test.ts"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "useAwait": "off"
+          }
+        }
+      }
+    },
+    {
       "include": ["src/scripts/**"],
       "linter": {
         "rules": {

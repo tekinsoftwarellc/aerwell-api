@@ -32,8 +32,9 @@ schema.pre("save", function () {
   if (!this.isNew) throw new Error("Audit events are append-only");
 });
 export const AuditEvent = model("AuditEvent", schema);
+/** `req` may be a real request or a socket's actor context (staff + requestId). */
 export async function audit(
-  req: Request,
+  req: Pick<Request, "staff" | "requestId">,
   action: string,
   targetType: string,
   targetId: string,

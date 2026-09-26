@@ -85,6 +85,8 @@ export const noteCreate = z
     recordingOffsetSec: z.number().int().min(0).max(86_400).optional(),
   })
   .strict();
+/** W9: a visit's notes only. */
+export const notesQuery = z.object({ appointmentId: objectId.optional() }).strict();
 export const notesRead = z.object({ noteIds: z.array(objectId).max(200).optional() }).strict();
 export const viewParams = z.object({ context: z.enum(VIEW_CONTEXTS) }).strict();
 export const viewPut = z

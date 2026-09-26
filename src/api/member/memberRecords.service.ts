@@ -1,6 +1,7 @@
 import type { Request } from "express";
 import { ConflictError, NotFoundError } from "../../common/errors/AppError.js";
 import { actor } from "../../common/http.js";
+import { Appointment } from "../appointment/appointment.model.js";
 import { audit } from "../audit/audit.js";
 import { flagRaised } from "../notification/producers.js";
 import { Service } from "../service/service.model.js";
@@ -69,7 +70,11 @@ export async function resolveFlag(req: Request) {
 export async function listNotes(req: Request) {
   const member = await memberTarget(req, NOTES);
   const reader = String(actor(req)._id);
-  const rows = await MemberNote.find(byMember(member))
+  const appointmentId = req.query["appointmentId"];
+  const rows = await MemberNote.find({
+    ...byMember(member),
+    ...(appointmentId ? { appointmentId } : {}),
+  })
     .sort({ createdAt: -1, _id: -1 })
     .limit(200)
     .lean();
@@ -95,6 +100,12 @@ export async function listNotes(req: Request) {
 }
 export async function createNote(req: Request) {
   const member = await memberTarget(req, { ...NOTES, write: true });
+  // A visit note must belong to one of THIS member's appointments.
+  if (
+    req.body.appointmentId &&
+    !(await Appointment.exists({ _id: req.body.appointmentId, ...byMember(member) }))
+  )
+    throw new NotFoundError("Appointment not found");
   const author = actor(req)._id;
   const row = await MemberNote.create({
     ...req.body,

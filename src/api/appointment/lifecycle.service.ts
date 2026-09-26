@@ -16,6 +16,7 @@ import { permissionsOf } from "../member/member.scope.js";
 import { appointmentChanged, flagRaised } from "../notification/producers.js";
 import { permits } from "../role/permission.js";
 import { Service } from "../service/service.model.js";
+import { emitVisitSignal } from "../visit/visit.events.js";
 import {
   AllowanceLedgerEntry,
   Appointment,
@@ -102,6 +103,13 @@ async function recordNoShow(row: AppointmentDocument, session: ClientSession) {
   );
 }
 
+/** W9 visit timestamps: the visit starts at in_progress and ends at completion. */
+function visitFields(row: AppointmentDocument, to: AppointmentStatus) {
+  if (to === "in_progress") return { visit: { startedAt: new Date() } };
+  if (to === "completed" && row.visit?.startedAt) return { "visit.endedAt": new Date() };
+  return {};
+}
+
 export async function changeStatus(req: Request) {
   const to = (req.body as { status: AppointmentStatus }).status;
   const initial = await appointmentTarget(req);
@@ -116,7 +124,7 @@ export async function changeStatus(req: Request) {
           `A ${row.status} appointment cannot become ${to}`,
           "INVALID_STATUS_TRANSITION"
         );
-      const updated = await transition(req, row, to, session);
+      const updated = await transition(req, row, to, session, visitFields(row, to));
       const staffId = String(actor(req)._id);
       if (to === "completed") {
         await ledger.settle({ appointmentId: row._id }, "consumed", staffId, "completed", session);
@@ -151,6 +159,8 @@ export async function changeStatus(req: Request) {
       return updated;
     }
   );
+  // Any live transcription of this appointment stops once it leaves in_progress.
+  if (to !== "in_progress") emitVisitSignal(String(initial._id), "visit_ended");
   if (noShowFlag) await flagRaised(noShowFlag, actor(req)._id);
   return changed;
 }
@@ -236,6 +246,7 @@ export async function cancelAppointment(req: Request) {
       return updated;
     }
   );
+  emitVisitSignal(String(initial._id), "visit_ended");
   await appointmentChanged("appointment_cancelled", cancelled, actor(req)._id);
   return cancelled;
 }
