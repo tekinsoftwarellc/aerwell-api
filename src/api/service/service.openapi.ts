@@ -118,10 +118,18 @@ export const servicePaths = {
         type: "object",
         properties: {
           items: { type: "array", items: service },
-          page: { type: "integer" },
-          limit: { type: "integer" },
-          total: { type: "integer" },
-          totalPages: { type: "integer" },
+          pagination: {
+            type: "object",
+            required: ["page", "limit", "total", "totalPages", "hasNext", "hasPrev"],
+            properties: {
+              page: { type: "integer" },
+              limit: { type: "integer" },
+              total: { type: "integer" },
+              totalPages: { type: "integer" },
+              hasNext: { type: "boolean" },
+              hasPrev: { type: "boolean" },
+            },
+          },
         },
       },
       {

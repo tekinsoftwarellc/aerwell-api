@@ -100,12 +100,17 @@ export async function listServices(req: Request) {
       .limit(query.limit),
     Service.countDocuments(filter),
   ]);
+  const totalPages = Math.max(1, Math.ceil(total / query.limit));
   return {
     items: await Promise.all(docs.map(serialize)),
-    total,
-    page: query.page,
-    limit: query.limit,
-    totalPages: Math.max(1, Math.ceil(total / query.limit)),
+    pagination: {
+      total,
+      page: query.page,
+      limit: query.limit,
+      totalPages,
+      hasNext: query.page < totalPages,
+      hasPrev: query.page > 1,
+    },
   };
 }
 async function findService(req: Request) {

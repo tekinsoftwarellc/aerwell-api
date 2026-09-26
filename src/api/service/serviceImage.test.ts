@@ -94,7 +94,11 @@ it("verifies encrypted image metadata and consumes an actor-bound upload exactly
     ContentType: "image/webp",
     ServerSideEncryption: "AES256",
   });
+  const timeout = vi.spyOn(AbortSignal, "timeout");
   const key = await attachServiceImage("org-test", "actor", uploadId);
+  expect(timeout).toHaveBeenCalledWith(10_000);
+  expect(mocks.send.mock.calls[0]?.[1]).toMatchObject({ abortSignal: expect.any(AbortSignal) });
+  timeout.mockRestore();
   expect(key).toMatch(/^org-test\/service-images\//);
   expect((await ServiceImageUpload.findById(uploadId))?.consumedAt).toBeTruthy();
   await expect(attachServiceImage("org-test", "actor", uploadId)).rejects.toMatchObject({

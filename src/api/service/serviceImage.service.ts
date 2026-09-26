@@ -69,7 +69,9 @@ export async function attachServiceImage(
   const { client, bucket } = storage();
   let head: HeadObjectCommandOutput;
   try {
-    head = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: upload.key }));
+    head = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: upload.key }), {
+      abortSignal: AbortSignal.timeout(10_000),
+    });
   } catch {
     throw new BadRequestError("Upload the image before saving");
   }

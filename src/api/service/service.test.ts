@@ -138,10 +138,36 @@ it("filters both sides, escapes search regex and paginates filtered totals", asy
   ] as const) {
     const res = await request(app).get(`/api/v1/services?${filter}`).set(auth());
     expect(res.status).toBe(200);
-    expect(res.body.data.total).toBe(total);
+    expect(res.body.data.pagination.total).toBe(total);
   }
   const page = await request(app).get("/api/v1/services?limit=1&page=2&status=active").set(auth());
-  expect(page.body.data).toMatchObject({ total: 2, totalPages: 2, page: 2 });
+  expect(Object.keys(page.body.data).sort()).toEqual(["items", "pagination"]);
+  expect(page.body.data.pagination).toEqual({
+    total: 2,
+    totalPages: 2,
+    page: 2,
+    limit: 1,
+    hasNext: false,
+    hasPrev: true,
+  });
+  const first = await request(app).get("/api/v1/services?limit=1&page=1&status=active").set(auth());
+  expect(first.body.data.pagination).toEqual({
+    total: 2,
+    totalPages: 2,
+    page: 1,
+    limit: 1,
+    hasNext: true,
+    hasPrev: false,
+  });
+  const empty = await request(app).get("/api/v1/services?q=missing").set(auth());
+  expect(empty.body.data.pagination).toEqual({
+    total: 0,
+    totalPages: 1,
+    page: 1,
+    limit: 20,
+    hasNext: false,
+    hasPrev: false,
+  });
   expect(page.body.data.items).toHaveLength(1);
   expect((await request(app).get("/api/v1/services?status=bogus").set(auth())).status).toBe(400);
   expect((await request(app).get("/api/v1/services?categoryId=bad").set(auth())).status).toBe(400);
@@ -242,7 +268,9 @@ it("bulk activation/deactivation/archive never deletes and rejects mixed invalid
   expect(await Service.countDocuments({ deletedAt: null })).toBe(2);
   expect((await bulk([a, b], "archive")).status).toBe(200);
   expect(await Service.countDocuments()).toBe(2);
-  expect((await request(app).get("/api/v1/services").set(auth())).body.data.total).toBe(0);
+  expect((await request(app).get("/api/v1/services").set(auth())).body.data.pagination.total).toBe(
+    0
+  );
   expect((await request(app).get(`/api/v1/services/${a}`).set(auth())).status).toBe(404);
   expect((await bulk([], "archive")).status).toBe(400);
 });
@@ -294,9 +322,13 @@ it("enforces view/edit permission on every route and supports scoped own assignm
     { _id: actor._id },
     { $set: { permissionOverrides: [{ module: "SERVICES", level: "view", scope: "own" }] } }
   );
-  expect((await request(app).get("/api/v1/services").set(auth())).body.data.total).toBe(0);
+  expect((await request(app).get("/api/v1/services").set(auth())).body.data.pagination.total).toBe(
+    0
+  );
   await Service.updateOne({ _id: saved.body.data.id }, { $set: { assignedStaffIds: [actor._id] } });
-  expect((await request(app).get("/api/v1/services").set(auth())).body.data.total).toBe(1);
+  expect((await request(app).get("/api/v1/services").set(auth())).body.data.pagination.total).toBe(
+    1
+  );
   await StaffMember.updateOne({ _id: actor._id }, { $set: { permissionOverrides: [] } });
   for (const route of [
     "/services",
