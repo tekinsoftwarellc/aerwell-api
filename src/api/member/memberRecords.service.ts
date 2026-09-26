@@ -2,6 +2,7 @@ import type { Request } from "express";
 import { ConflictError, NotFoundError } from "../../common/errors/AppError.js";
 import { actor } from "../../common/http.js";
 import { audit } from "../audit/audit.js";
+import { flagRaised } from "../notification/producers.js";
 import { Service } from "../service/service.model.js";
 import { StaffMember } from "../staff/staff.model.js";
 import { MemberFlag, MemberNote, ViewPreference } from "./member.model.js";
@@ -44,6 +45,7 @@ export async function createFlag(req: Request) {
     raisedBy: String(actor(req)._id),
   });
   await audit(req, "created", "MemberFlag", String(row._id), String(member._id));
+  await flagRaised(row, actor(req)._id);
   return row;
 }
 export async function resolveFlag(req: Request) {

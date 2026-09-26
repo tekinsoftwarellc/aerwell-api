@@ -6,6 +6,7 @@ import { validate } from "../../common/middleware/validate.js";
 import { ServiceResponse } from "../../common/models/serviceResponse.js";
 import type { CacheService } from "../../common/services/cache.service.js";
 import { asyncHandler } from "../../common/utils/asyncHandler.js";
+import { unreadCount } from "../notification/notification.router.js";
 import { MODULES } from "../role/permission.js";
 import {
   changeSchema,
@@ -112,9 +113,9 @@ meRouter.get(
   "/me/counters",
   authenticate,
   validate({ query: z.object({}).strict() }),
-  (_req, res) => {
-    res.json(ServiceResponse.success("OK", { unreadNotifications: 0 }));
-  }
+  asyncHandler(async (req, res) => {
+    res.json(ServiceResponse.success("OK", { unreadNotifications: await unreadCount(req) }));
+  })
 );
 meRouter.get(
   "/permissions/modules",

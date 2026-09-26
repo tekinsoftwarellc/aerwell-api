@@ -7,6 +7,7 @@ import { env } from "../../config/env.js";
 import { AuditEvent, audit } from "../audit/audit.js";
 import { StaffCredential } from "../auth/auth.model.js";
 import { hashPassword, hashToken, opaqueToken } from "../auth/password.js";
+import { inviteAccepted } from "../notification/producers.js";
 import { Role } from "../role/role.model.js";
 import { guardGrant } from "../settings/settings.service.js";
 import { type StaffDocument, StaffMember } from "../staff/staff.model.js";
@@ -102,6 +103,7 @@ export async function acceptInvite(input: {
 }) {
   const passwordHash = await hashPassword(input.password);
   const session = await mongoose.startSession();
+  let joined: StaffDocument | null = null;
   try {
     await session.withTransaction(async () => {
       const invite = await Invite.findOneAndUpdate(
@@ -128,6 +130,7 @@ export async function acceptInvite(input: {
       );
       if (!staff)
         throw new UnauthorizedError("This invitation is invalid or expired", "INVITE_INVALID");
+      joined = staff;
       await StaffCredential.create(
         [{ staffId: staff._id, organizationId: staff.organizationId, passwordHash }],
         { session }
@@ -148,5 +151,6 @@ export async function acceptInvite(input: {
   } finally {
     await session.endSession();
   }
+  if (joined) await inviteAccepted(joined);
   return { accepted: true };
 }

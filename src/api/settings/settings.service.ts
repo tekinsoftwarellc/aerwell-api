@@ -5,7 +5,12 @@ import { actor } from "../../common/http.js";
 import { emailConfigured } from "../../common/services/email.service.js";
 import { AuditEvent, audit } from "../audit/audit.js";
 import { Location } from "../location/location.model.js";
-import { NotificationPreference, NotificationRule } from "../notification/preference.model.js";
+import {
+  NotificationPreference,
+  NotificationRule,
+  PREFERENCE_DEFAULTS,
+  QUIET_HOURS_DEFAULT,
+} from "../notification/preference.model.js";
 import { permits, resolvePermissions } from "../role/permission.js";
 import type { Permission } from "../role/permission.types.js";
 import { Role } from "../role/role.model.js";
@@ -102,14 +107,7 @@ export async function saveRole(req: Request) {
   await audit(req, req.params["id"] ? "updated" : "created", "Role", String(row._id));
   return row;
 }
-const defaults = {
-  billing: { in_app: true, push: true, email: true },
-  approvals: { in_app: true, push: true, email: false },
-  critical_alerts: { in_app: true, push: true, email: true },
-  appointments: { in_app: true, push: false, email: false },
-  members: { in_app: true, push: false, email: true },
-  system: { in_app: true, push: false, email: true },
-};
+const defaults = PREFERENCE_DEFAULTS;
 export async function preferences(req: Request, write = false) {
   const staff = actor(req);
   const filter = { organizationId: staff.organizationId, staffId: staff._id };
@@ -133,7 +131,7 @@ export async function preferences(req: Request, write = false) {
     (await NotificationPreference.findOne(filter).lean()) ?? {
       ...filter,
       matrix: defaults,
-      quietHours: { enabled: true, start: "21:00", end: "07:00" },
+      quietHours: QUIET_HOURS_DEFAULT,
     }
   );
 }

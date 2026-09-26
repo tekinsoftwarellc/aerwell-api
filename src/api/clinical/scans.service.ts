@@ -2,6 +2,7 @@ import type { Request } from "express";
 import { ConflictError, NotFoundError } from "../../common/errors/AppError.js";
 import { audit } from "../audit/audit.js";
 import type { MemberDocument } from "../member/member.model.js";
+import { clinicalReview } from "../notification/producers.js";
 import { Biomarker } from "./catalog.model.js";
 import {
   actorId,
@@ -186,5 +187,9 @@ export async function scanTrend(req: Request) {
   return { metric, reference, ...referenceLabels(reference), points };
 }
 
-export const createScan = async (req: Request) => withoutDocument(await createScanRow(req));
+export async function createScan(req: Request) {
+  const row = await createScanRow(req);
+  await clinicalReview("scan_review", row, actorId(req));
+  return withoutDocument(row);
+}
 export const reviewScan = async (req: Request) => withoutDocument(await reviewScanRow(req));

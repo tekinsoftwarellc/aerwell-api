@@ -8,6 +8,7 @@ import { asyncHandler } from "../../common/utils/asyncHandler.js";
 import { env } from "../../config/env.js";
 import { AuditEvent } from "../audit/audit.js";
 import { Member, MemberMembership } from "../member/member.model.js";
+import { paymentFailed } from "../notification/producers.js";
 import { paymentsUnconfigured } from "./billing.adapter.js";
 import { Invoice, ProcessorEvent } from "./billing.model.js";
 
@@ -161,9 +162,10 @@ async function applySubscription(event: StripeEvent, session: ClientSession): Pr
 
 /** Records the event id and its effect in one transaction; a repeated id is a no-op. */
 export async function handleStripeEvent(event: StripeEvent) {
+  let applied = false;
   try {
     await mongoose.connection.transaction(async (session) => {
-      const applied = event.type.startsWith("invoice.")
+      applied = event.type.startsWith("invoice.")
         ? await applyInvoice(event, session)
         : event.type.startsWith("customer.subscription.")
           ? await applySubscription(event, session)
@@ -175,6 +177,9 @@ export async function handleStripeEvent(event: StripeEvent) {
         }
       );
     });
+    const invoiceId = str(event.data.object["id"]);
+    if (applied && event.type === "invoice.payment_failed" && invoiceId)
+      await paymentFailed(invoiceId);
     return { received: true, duplicate: false };
   } catch (error) {
     const duplicate = error as { code?: number; keyPattern?: Record<string, unknown> };

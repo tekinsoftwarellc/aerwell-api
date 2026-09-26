@@ -3,6 +3,7 @@ import { ConflictError, NotFoundError, ValidationError } from "../../common/erro
 import { escapedSearch } from "../../common/http.js";
 import { audit } from "../audit/audit.js";
 import type { MemberDocument } from "../member/member.model.js";
+import { clinicalReview } from "../notification/producers.js";
 import { Biomarker, type BiomarkerData, LabPanelTemplate } from "./catalog.model.js";
 import {
   actorId,
@@ -290,5 +291,9 @@ export async function biomarkerTrend(req: Request) {
   };
 }
 
-export const createPanel = async (req: Request) => withoutDocument(await createPanelRow(req));
+export async function createPanel(req: Request) {
+  const row = await createPanelRow(req);
+  await clinicalReview("lab_review", row, actorId(req));
+  return withoutDocument(row);
+}
 export const reviewPanel = async (req: Request) => withoutDocument(await reviewPanelRow(req));

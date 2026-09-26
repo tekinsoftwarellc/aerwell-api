@@ -154,7 +154,7 @@ export const authPaths = {
     },
   }),
   "/api/v1/me/counters": get(
-    "Unread notification count (zero until notification producers are enabled)",
+    "Unread in-app notifications for the signed-in staff member (rows deferred by quiet hours are not counted yet)",
     { type: "object", properties: { unreadNotifications: { type: "integer" } } }
   ),
   "/api/v1/permissions/modules": get("The nine Aerwell permission modules", {

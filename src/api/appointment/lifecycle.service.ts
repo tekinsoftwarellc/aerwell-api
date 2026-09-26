@@ -13,6 +13,7 @@ import { actor } from "../../common/http.js";
 import { audit } from "../audit/audit.js";
 import { Member, MemberFlag } from "../member/member.model.js";
 import { permissionsOf } from "../member/member.scope.js";
+import { appointmentChanged, flagRaised } from "../notification/producers.js";
 import { permits } from "../role/permission.js";
 import { Service } from "../service/service.model.js";
 import {
@@ -85,7 +86,7 @@ async function fulfilEpisode(req: Request, row: AppointmentDocument, session: Cl
 }
 
 async function recordNoShow(row: AppointmentDocument, session: ClientSession) {
-  await MemberFlag.create(
+  return MemberFlag.create(
     [
       {
         organizationId: row.organizationId,
@@ -104,7 +105,8 @@ async function recordNoShow(row: AppointmentDocument, session: ClientSession) {
 export async function changeStatus(req: Request) {
   const to = (req.body as { status: AppointmentStatus }).status;
   const initial = await appointmentTarget(req);
-  return lockedTransaction(
+  let noShowFlag: { organizationId: string; memberId: unknown; category: string } | undefined;
+  const changed = await lockedTransaction(
     [memberLock(initial.memberId), providerLock(initial.providerId)],
     async (session) => {
       const row = await Appointment.findById(initial._id).session(session);
@@ -136,7 +138,7 @@ export async function changeStatus(req: Request) {
             "component_no_show",
             session
           );
-        await recordNoShow(row, session);
+        [noShowFlag] = await recordNoShow(row, session);
       }
       await audit(
         req,
@@ -149,6 +151,8 @@ export async function changeStatus(req: Request) {
       return updated;
     }
   );
+  if (noShowFlag) await flagRaised(noShowFlag);
+  return changed;
 }
 
 /** Late-cancellation terms for one appointment at `now` (also shown before cancelling). */
@@ -218,7 +222,7 @@ export async function cancelAppointment(req: Request) {
   if (waiveFee && !permits((await permissionsOf(req)).APPOINTMENTS.level, "master"))
     throw new ForbiddenError("Waiving a fee needs Appointments master", "WAIVE_REQUIRES_MASTER");
   const initial = await appointmentTarget(req);
-  return lockedTransaction(
+  const cancelled = await lockedTransaction(
     [memberLock(initial.memberId), providerLock(initial.providerId)],
     async (session) => {
       const row = await Appointment.findById(initial._id).session(session);
@@ -232,4 +236,6 @@ export async function cancelAppointment(req: Request) {
       return updated;
     }
   );
+  await appointmentChanged("appointment_cancelled", cancelled, actor(req)._id);
+  return cancelled;
 }

@@ -7,6 +7,16 @@ export const notificationTypes = [
   "members",
   "system",
 ] as const;
+/** Personal delivery matrix when a staff member has saved nothing (W2 Settings). */
+export const PREFERENCE_DEFAULTS = {
+  billing: { in_app: true, push: true, email: true },
+  approvals: { in_app: true, push: true, email: false },
+  critical_alerts: { in_app: true, push: true, email: true },
+  appointments: { in_app: true, push: false, email: false },
+  members: { in_app: true, push: false, email: true },
+  system: { in_app: true, push: false, email: true },
+};
+export const QUIET_HOURS_DEFAULT = { enabled: true, start: "21:00", end: "07:00" };
 const channel = {
   in_app: { type: Boolean, default: true },
   push: { type: Boolean, default: false },

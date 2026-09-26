@@ -30,7 +30,7 @@ type DayStart = (offset: number) => Date;
  * day then starts at 01:00. ponytail: an ambiguous fall-back midnight also takes
  * 01:00 (an hour late); use the earliest instant if a zone ever needs it.
  */
-function dayStarts(today: string, tz: string): DayStart {
+export function dayStarts(today: string, tz: string): DayStart {
   const cache = new Map<number, Date>();
   return (offset) => {
     const hit = cache.get(offset);

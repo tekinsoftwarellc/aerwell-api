@@ -14,6 +14,7 @@ import { actor } from "../../common/http.js";
 import { audit } from "../audit/audit.js";
 import type { EntitlementQuote } from "../entitlement/entitlement.types.js";
 import { STANDARD_DELIVERY } from "../entitlement/entitlement.types.js";
+import { appointmentChanged } from "../notification/producers.js";
 import { Appointment, type AppointmentDocument, LIVE_STATUSES } from "./appointment.model.js";
 import { eligibleProviders, slotCapacity, slotContext } from "./availability.service.js";
 import { ensureLocks, ledger, memberLock, providerLock, takeLocks } from "./ledger.service.js";
@@ -233,10 +234,13 @@ export async function bookAppointment(req: Request) {
   const existing = await replay(member.organizationId, body);
   if (existing) return { appointment: existing, replayed: true };
   try {
-    return await lockedTransaction(
+    const result = await lockedTransaction(
       [memberLock(body.memberId), providerLock(body.providerId)],
       (session) => createBooking(req, body, session)
     );
+    if (!result.replayed)
+      await appointmentChanged("appointment_booked", result.appointment, actor(req)._id);
+    return result;
   } catch (error) {
     // A concurrent request with the same key committed first.
     const again =
@@ -275,7 +279,7 @@ export async function rescheduleAppointment(req: Request) {
     providerLock(initial.providerId),
     providerLock(providerId),
   ];
-  return lockedTransaction([...new Set(keys)], async (session) => {
+  const moved = await lockedTransaction([...new Set(keys)], async (session) => {
     const row = await Appointment.findById(initial._id).session(session);
     if (!row || !["booked", "confirmed"].includes(row.status))
       throw new ValidationError(
@@ -317,4 +321,7 @@ export async function rescheduleAppointment(req: Request) {
     await audit(req, "rescheduled", "Appointment", String(row._id), String(row.memberId), session);
     return row;
   });
+  const providers = [...new Set([String(initial.providerId), String(moved.providerId)])];
+  await appointmentChanged("appointment_rescheduled", moved, actor(req)._id, providers);
+  return moved;
 }

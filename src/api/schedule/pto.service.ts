@@ -9,6 +9,7 @@ import {
 import { actor } from "../../common/http.js";
 import { Appointment, UPCOMING_STATUSES } from "../appointment/appointment.model.js";
 import { audit } from "../audit/audit.js";
+import { ptoDecided, ptoRequested } from "../notification/producers.js";
 import { OrganizationSettings } from "../settings/settings.model.js";
 import { staffTarget } from "../staff/staff.service.js";
 import { organizationTimeZone, organizationToday } from "./flags.js";
@@ -132,7 +133,7 @@ export async function createPto(req: Request) {
   const { startDate, endDate } = req.body as { startDate: string; endDate: string };
   if (startDate < (await organizationToday(actor(req).organizationId)))
     throw new ValidationError("Time off cannot start before today", "PTO_IN_PAST");
-  return schedulingTransaction(req, async (session) => {
+  const created = await schedulingTransaction(req, async (session) => {
     const staff = actor(req);
     const overlap = await PtoRequest.exists({
       organizationId: staff.organizationId,
@@ -157,6 +158,8 @@ export async function createPto(req: Request) {
     await scheduleAudit(req, session, "created", "PtoRequest", String(row._id));
     return row;
   });
+  await ptoRequested(created);
+  return created;
 }
 async function deduct(row: PtoDocument, session: ClientSession) {
   const perYear = Object.entries(daysByYear(row.startDate, row.endDate));
@@ -188,7 +191,7 @@ export async function decidePto(req: Request, approve: boolean) {
   const initial = await ptoTarget(req);
   if (String(initial.staffId) === String(actor(req)._id))
     throw new ForbiddenError("You cannot decide your own time-off request", "PTO_SELF_DECISION");
-  return schedulingTransaction(req, async (session) => {
+  const decided = await schedulingTransaction(req, async (session) => {
     const row = await PtoRequest.findById(initial._id).session(session);
     if (row?.status !== "pending")
       throw new ConflictError("This request was already decided", undefined, "PTO_ALREADY_DECIDED");
@@ -207,6 +210,8 @@ export async function decidePto(req: Request, approve: boolean) {
     await scheduleAudit(req, session, action, "PtoRequest", String(row._id));
     return row;
   });
+  await ptoDecided(decided, actor(req)._id);
+  return decided;
 }
 export async function timeOff(req: Request, requestedYear?: number) {
   const target = await staffTarget(req);

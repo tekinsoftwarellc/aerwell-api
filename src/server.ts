@@ -11,9 +11,11 @@ import { createAuthRouter, meRouter } from "./api/auth/auth.router.js";
 import { webhookRouter } from "./api/billing/webhook.js";
 import { catalogRouter } from "./api/catalog/catalog.router.js";
 import { clinicalRouter } from "./api/clinical/clinical.router.js";
+import { dashboardRouter } from "./api/dashboard/dashboard.router.js";
 import { healthRouter } from "./api/health/health.router.js";
 import { createInviteRouter } from "./api/invite/invite.router.js";
 import { memberRouter } from "./api/member/member.router.js";
+import { notificationRouter } from "./api/notification/notification.router.js";
 import { schedulingRouter } from "./api/schedule/schedule.router.js";
 import { serviceRouter } from "./api/service/service.router.js";
 import { settingsRouter } from "./api/settings/settings.router.js";
@@ -61,6 +63,9 @@ export const createServer = (cache: CacheService = createCacheService()): Expres
   app.use("/api/v1", appointmentRouter);
   // W8 clinical record (appended; self-contained router).
   app.use("/api/v1", clinicalRouter);
+  // W7 notifications + dashboard (appended; self-contained routers).
+  app.use("/api/v1", notificationRouter);
+  app.use("/api/v1", dashboardRouter);
   app.use((_req, _res, next) => next(new NotFoundError("Route not found")));
   app.use(errorHandler);
   return app;
