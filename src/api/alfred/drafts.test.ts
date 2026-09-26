@@ -1,3 +1,4 @@
+import { Types } from "mongoose";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   alfredWorld,
@@ -298,4 +299,12 @@ it("W11: a stuck non-idempotent draft is never re-run blindly; the staff member 
   const cancelled = await api.post(draftPath(note.id, "/cancel"));
   expect(cancelled.status).toBe(200);
   expect(cancelled.body.data.status).toBe("cancelled");
+  // A draft stuck before W11 has no confirmingAt at all: it is stale too.
+  const [old] = (await propose(api, "propose_add_note", { memberId: w.memberId, body: "Older" }))
+    .drafts;
+  await AlfredDraft.collection.updateOne(
+    { _id: new Types.ObjectId(old.id) },
+    { $set: { status: "confirming" }, $unset: { confirmingAt: "" } }
+  );
+  expect((await api.post(draftPath(old.id, "/cancel"))).status).toBe(200);
 });

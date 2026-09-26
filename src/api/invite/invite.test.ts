@@ -89,3 +89,26 @@ it("W11: resending an invite re-checks that the sender may grant the pending per
     .auth(admin.accessToken, { type: "bearer" });
   expect(superResend.status).toBe(200);
 });
+
+it("W11 review: re-inviting a pending person with a grantable role still checks their overrides", async () => {
+  const admin = await staffFixture();
+  const director = await staffFixture(false, 0);
+  const created = await invite(admin.accessToken, {
+    email: "overrides@example.invalid",
+    roleId: String(director.role._id),
+  });
+  expect(created.status).toBe(201);
+  await StaffMember.updateOne(
+    { email: "overrides@example.invalid" },
+    { permissionOverrides: [{ module: "BILLING", level: "master", scope: "all" }] }
+  );
+  await request(app)
+    .post(`/api/v1/invites/${created.body.data._id}/revoke`)
+    .auth(admin.accessToken, { type: "bearer" });
+  const again = await invite(director.accessToken, {
+    email: "overrides@example.invalid",
+    roleId: String(director.role._id),
+  });
+  expect(again.status).toBe(403);
+  expect(await Invite.countDocuments({ status: "pending" })).toBe(0);
+});

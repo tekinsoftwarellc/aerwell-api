@@ -140,6 +140,7 @@ class CaptureConnection {
   #captureIndex = 0;
   #startedAt = new Date();
   #writes: Promise<void> = Promise.resolve();
+  #stopping: Promise<void> = Promise.resolve();
   #pending = 0;
   #frames = 0;
   #segments = 0;
@@ -302,13 +303,19 @@ class CaptureConnection {
   /** Graceful server shutdown: a live capture flushes its last lines first. */
   async shutdown() {
     if (this.#phase === "recording") await this.#stop("SERVER_RESTARTING");
+    // A stop the user already asked for finishes (and saves its tail) on its own.
+    else if (this.#phase === "stopping") await this.#stopping;
     else await this.fail("SERVER_RESTARTING");
   }
 
   /** Flush and close; `reason` ends with that code instead of a user "stopped". */
-  async #stop(reason?: string) {
-    if (this.#phase !== "recording" || !this.#live) return;
-    const live = this.#live;
+  #stop(reason?: string): Promise<void> {
+    if (this.#phase !== "recording" || !this.#live) return this.#stopping;
+    this.#stopping = this.#finish(this.#live, reason);
+    return this.#stopping;
+  }
+
+  async #finish(live: LiveTranscription, reason?: string) {
     this.#phase = "stopping";
     // A failure while we wait runs fail(), which moves the phase to done; every
     // step below re-checks it so a stop never writes over a failure.

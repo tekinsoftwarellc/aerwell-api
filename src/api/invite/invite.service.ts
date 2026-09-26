@@ -64,6 +64,8 @@ export async function createInvite(req: Request) {
       undefined,
       "STAFF_EMAIL_EXISTS"
     );
+  // A fresh token also carries the pending person's overrides: the sender must grant those too.
+  if (staff) await guardGrant(req, [...role.permissions, ...(staff.permissionOverrides ?? [])]);
   // Re-inviting a pending person applies the role just checked, not the one they had.
   if (staff && String(staff.roleId) !== String(role._id)) {
     staff.roleId = role._id;

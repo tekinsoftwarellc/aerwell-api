@@ -57,6 +57,6 @@ describe("W11: deploy start script", () => {
   it("syncs indexes before traffic and gives pm2 time to drain live captures", () => {
     expect(script.indexOf("npm run db:sync-indexes")).toBeGreaterThan(0);
     expect(script.indexOf("npm run db:sync-indexes")).toBeLessThan(script.indexOf("pm2 start"));
-    expect(script).toMatch(/--kill-timeout=3\d{4}/);
+    expect(script).toMatch(/--kill-timeout=5\d{4}/);
   });
 });

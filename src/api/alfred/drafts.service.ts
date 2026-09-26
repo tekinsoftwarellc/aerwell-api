@@ -271,7 +271,8 @@ export async function proposeDraft(
 const pending = { status: "pending" };
 const stale = () => ({
   status: "confirming",
-  confirmingAt: { $lt: new Date(Date.now() - STALE_CLAIM_MS) },
+  // null: claimed before confirmingAt existed (pre-W11), so certainly stale.
+  $or: [{ confirmingAt: { $lt: new Date(Date.now() - STALE_CLAIM_MS) } }, { confirmingAt: null }],
 });
 const mine = (req: Request) => ({
   _id: req.params["draftId"],

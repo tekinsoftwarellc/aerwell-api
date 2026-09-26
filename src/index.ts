@@ -18,7 +18,7 @@ server.on("error", () => {
 });
 let shuttingDown = false;
 // pm2 must allow this long (start_server.sh passes --kill-timeout) or live captures lose their tail.
-const SHUTDOWN_MS = 30_000;
+const SHUTDOWN_MS = 45_000;
 const shutdown = async (): Promise<void> => {
   if (shuttingDown) return;
   shuttingDown = true;
@@ -30,6 +30,7 @@ const shutdown = async (): Promise<void> => {
     clearTimeout(timeout);
     process.exit(0);
   });
+  // Longer than a capture's own 30 s provider-finish timeout.
   await closeVisitSockets(SHUTDOWN_MS - 10_000);
 };
 process.on("SIGINT", shutdown);

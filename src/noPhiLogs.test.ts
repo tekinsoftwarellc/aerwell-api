@@ -55,10 +55,11 @@ const PHI = {
   lab: String(LAB_SENTINEL),
 };
 function assertNoPhi(extra: string[] = []) {
-  // Strip ISO timestamps and hex ids first: they contain arbitrary digit runs.
+  // Strip hex ids first: they contain arbitrary digit runs.
   const text = sink.lines
     .join("\n")
-    .replace(/"\d{4}-\d{2}-\d{2}T[^"]*"/g, '""')
+    // Only pino's own timestamp: a DOB logged as an ISO date must still be caught.
+    .replace(/"time":"[^"]*"/g, '""')
     .replace(/[a-f\d]{24}/gi, "");
   const leaked = [...Object.values(PHI), ...extra].filter((value) =>
     text.toLowerCase().includes(value.toLowerCase())

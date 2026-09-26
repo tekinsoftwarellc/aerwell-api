@@ -461,3 +461,27 @@ it("W11: shutdown flushes the provider's last lines to the database before it re
   expect((await client.closed).code).toBe(1012);
   expect(await CaptureLease.countDocuments({ captureId: { $ne: null } })).toBe(0);
 });
+
+it("W11 review: shutdown during a user's stop lets that stop finish and save its tail", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const fake = new FakeTranscriber(
+    [[]],
+    [final(0, "spk_0", "Tail line after stop.")],
+    undefined,
+    gate
+  );
+  const { v, client } = await recording(fake);
+  client.ws.send(pcmFrame());
+  await settle(50);
+  client.send({ type: "stop" }); // stop() now waits on the held provider
+  await settle(50);
+  const drained = server.drain();
+  release();
+  await drained;
+  expect(await TranscriptSegment.countDocuments({ appointmentId: v.id })).toBe(1);
+  expect((await client.next("stopped")).segments).toBe(1);
+  expect((await client.closed).code).toBe(1000);
+});

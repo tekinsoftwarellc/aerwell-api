@@ -27,5 +27,5 @@ STRIP=(-u NODE_ENV -u PORT -u HOST -u MONGODB_URI -u CORS_ORIGIN
 env "${STRIP[@]}" npm run db:sync-indexes
 # --kill-timeout: SIGINT drains live visit captures (flush + save) before exit.
 env "${STRIP[@]}" pm2 start dist/index.js --name "$APP_NAME" --cwd "$APP_DIR" \
-  --restart-delay=3000 --max-restarts=5 --kill-timeout=35000 --time
+  --restart-delay=3000 --max-restarts=5 --kill-timeout=50000 --time
 pm2 save
