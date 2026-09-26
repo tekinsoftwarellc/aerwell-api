@@ -27,7 +27,11 @@ import {
 const sink = vi.hoisted(() => ({ lines: [] as string[] }));
 vi.mock("./common/utils/logger.js", async (importOriginal) => {
   const real = await importOriginal<typeof import("./common/utils/logger.js")>();
-  const capture = { write: (line: string) => void sink.lines.push(line) };
+  const capture = {
+    write: (line: string) => {
+      sink.lines.push(line);
+    },
+  };
   return { ...real, logger: real.createLogger(capture as never) };
 });
 vi.mock("./common/middleware/requestLogger.js", async (importOriginal) => {
