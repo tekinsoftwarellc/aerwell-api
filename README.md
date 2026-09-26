@@ -1,6 +1,6 @@
 # Aerwell API
 
-W0 Express 4 / TypeScript / Mongo scaffold. Node 22 or later. Authentication and staff features begin in W1.
+Express 4 / TypeScript / Mongo scaffold. Node 22 or later. W1 staff, permission, audit and seed foundations are present; authentication integration is pending an architecture decision because the upstream Alfred staff realm was retired. Protected application routes are not yet mounted.
 
 ```sh
 npm ci
@@ -18,6 +18,8 @@ npm run smoke
 ```
 
 Tests use isolated in-memory MongoDB processes and do not load `.env`. The smoke launches the compiled server against another memory Mongo, calls health with curl, and checks graceful shutdown. Test tooling requires downloading a MongoDB binary once.
+
+The development seed requires `AERWELL_ORG_ID` and all four `SEED_SUPER_ADMIN_*` variables named in `.env.example`. It links an explicitly supplied authentication account; it does not create credentials. Run `npm run seed:dev -- --confirm-local-seed` only against localhost MongoDB in a non-production environment. It inserts default roles, organization settings, a Las Vegas location, two environments and a supplied super admin. Re-running preserves existing edits and deactivated accounts. It is never run by deployment hooks.
 
 Deployment scaffolding uses `/home/ubuntu/aerwell-api`, PM2 `aerwell-api`, and port 3003. Hooks never source shell environment files. Configure the shared EC2 reverse proxy so it replaces forwarded client headers (Express trusts one proxy hop). Verify the existing EC2 `CodeDeploy=everhaus-api-dev` tag before deploying the CloudFormation stack; this default is inherited from the sibling template, not verified against AWS. Atlas, DNS/reverse proxy routing, CodeStar connection, and pipeline creation require separate setup and approval. No production service is configured or deployed by this repository's local scaffold.
 

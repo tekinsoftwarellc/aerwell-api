@@ -1,0 +1,88 @@
+import { z } from "zod";
+import { Environment, Location } from "../api/location/location.model.js";
+import { MODULES, seedRoles } from "../api/role/permission.js";
+import { Role } from "../api/role/role.model.js";
+import { OrganizationSettings } from "../api/settings/settings.model.js";
+import { StaffMember } from "../api/staff/staff.model.js";
+export const seedInputSchema = z
+  .object({
+    organizationId: z.string().min(1),
+    email: z.string().email(),
+    authAccountId: z.string().min(1),
+    firstName: z.string().min(1),
+    lastName: z.string().min(1),
+  })
+  .strict();
+type SeedInput = z.infer<typeof seedInputSchema>;
+async function seedOrganization(organizationId: string) {
+  await OrganizationSettings.updateOne(
+    { organizationId },
+    {
+      $setOnInsert: {
+        organizationId,
+        name: "Aerwell",
+        timeZone: "America/Los_Angeles",
+        currency: "USD",
+        dateFormat: "MM/DD/YYYY",
+        security: { autoSignOutMinutes: 30, requireTwoFactor: false },
+      },
+    },
+    { upsert: true }
+  );
+  const location = await Location.findOneAndUpdate(
+    { organizationId, name: "Aerwell Las Vegas" },
+    {
+      $setOnInsert: { organizationId, name: "Aerwell Las Vegas", timeZone: "America/Los_Angeles" },
+    },
+    { upsert: true, new: true }
+  );
+  await OrganizationSettings.updateOne(
+    { organizationId, primaryLocationId: { $exists: false } },
+    { $set: { primaryLocationId: location._id } }
+  );
+  for (const name of ["The Clinic", "The Reserve"])
+    await Environment.updateOne(
+      { organizationId, locationId: location._id, name },
+      { $setOnInsert: { organizationId, locationId: location._id, name } },
+      { upsert: true }
+    );
+  return location;
+}
+async function seedRoleTemplates(organizationId: string) {
+  for (const role of seedRoles)
+    await Role.updateOne(
+      { organizationId, name: role.name },
+      { $setOnInsert: { organizationId, ...role } },
+      { upsert: true }
+    );
+  return Role.findOneAndUpdate(
+    { organizationId, name: "Super Admin" },
+    {
+      $setOnInsert: {
+        organizationId,
+        name: "Super Admin",
+        shortCode: "SA",
+        permissions: MODULES.map((module) => ({ module, level: "master", scope: "all" })),
+      },
+    },
+    { upsert: true, new: true }
+  );
+}
+export async function seedDevelopmentData(input: SeedInput): Promise<void> {
+  const data = seedInputSchema.parse(input);
+  const location = await seedOrganization(data.organizationId);
+  const role = await seedRoleTemplates(data.organizationId);
+  await StaffMember.updateOne(
+    { organizationId: data.organizationId, authAccountId: data.authAccountId },
+    {
+      $setOnInsert: {
+        ...data,
+        roleId: role._id,
+        isSuperAdmin: true,
+        accountStatus: "active",
+        homeLocationId: location._id,
+      },
+    },
+    { upsert: true }
+  );
+}

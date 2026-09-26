@@ -19,7 +19,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "seed:dev": "tsx src/scripts/seed.ts"
   },
   "dependencies": {
     "express": "4.22.1",
