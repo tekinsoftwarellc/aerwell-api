@@ -2,8 +2,10 @@ import { Schema, model } from "mongoose";
 const schema = new Schema(
   {
     organizationId: { type: String, required: true, unique: true },
+    staffAccessRevision: { type: Number, default: 0 },
     name: { type: String, default: "Aerwell" },
     logoUrl: String,
+    logoUploadId: Schema.Types.ObjectId,
     tagline: String,
     workspaceAddress: String,
     primaryLocationId: { type: Schema.Types.ObjectId, ref: "Location" },

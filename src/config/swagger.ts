@@ -1,4 +1,5 @@
 import { authPaths } from "../api/auth/auth.openapi.js";
+import { settingsPaths } from "../api/settings/settings.openapi.js";
 const envelope = (data: Record<string, unknown>) => ({
   type: "object",
   required: ["success", "status", "message", "data", "statusCode"],
@@ -19,6 +20,7 @@ export const swaggerSpec = {
   info: { title: "Aerwell API", version: "0.1.0", description: "Aerwell staff API scaffold" },
   paths: {
     ...authPaths,
+    ...settingsPaths,
     "/api/v1/health": {
       get: {
         summary: "Process and Mongo health",

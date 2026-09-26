@@ -19,6 +19,7 @@ const schema = new Schema(
       country: String,
     },
     photoUrl: String,
+    photoUploadId: Schema.Types.ObjectId,
     titlePrefix: String,
     displayName: String,
     roleId: { type: Schema.Types.ObjectId, ref: "Role" },

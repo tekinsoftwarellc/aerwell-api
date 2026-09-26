@@ -8,6 +8,10 @@ import hpp from "hpp";
 import swaggerUi from "swagger-ui-express";
 import { createAuthRouter, meRouter } from "./api/auth/auth.router.js";
 import { healthRouter } from "./api/health/health.router.js";
+import { createInviteRouter } from "./api/invite/invite.router.js";
+import { settingsRouter } from "./api/settings/settings.router.js";
+import { staffRouter } from "./api/staff/staff.router.js";
+import { uploadRouter } from "./api/upload/upload.router.js";
 import { NotFoundError } from "./common/errors/AppError.js";
 import { correlationId } from "./common/middleware/correlationId.js";
 import { errorHandler } from "./common/middleware/errorHandler.js";
@@ -31,12 +35,16 @@ export const createServer = (cache: CacheService = createCacheService()): Expres
   app.use(express.urlencoded({ extended: true, limit: "10kb" }));
   app.use(cookieParser());
   app.use(mongoSanitize());
-  app.use(hpp());
+  app.use(hpp({ whitelist: ["roleIds", "status", "flags", "categoryId", "ids"] }));
   if (env.NODE_ENV !== "production")
     app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
   app.use("/api/v1/health", healthRouter);
   app.use("/api/v1/auth", createAuthRouter(cache));
   app.use("/api/v1", meRouter);
+  app.use("/api/v1", settingsRouter);
+  app.use("/api/v1", createInviteRouter(cache));
+  app.use("/api/v1", staffRouter);
+  app.use("/api/v1", uploadRouter);
   app.use((_req, _res, next) => next(new NotFoundError("Route not found")));
   app.use(errorHandler);
   return app;

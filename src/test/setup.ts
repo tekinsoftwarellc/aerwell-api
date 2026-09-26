@@ -1,4 +1,4 @@
-import { MongoMemoryServer } from "mongodb-memory-server";
+import { MongoMemoryReplSet } from "mongodb-memory-server";
 import mongoose from "mongoose";
 import { afterAll, afterEach, beforeAll } from "vitest";
 
@@ -8,9 +8,9 @@ process.env["MONGODB_URI"] = "mongodb://127.0.0.1:27017/aerwell-test-placeholder
 process.env["STAFF_JWT_SECRET"] = "test-only-signing-key-not-for-deployment-12345";
 process.env["AERWELL_ORG_ID"] = "org-test";
 process.env["ADMIN_BASE_URL"] = "http://localhost:3200";
-let mongoServer: MongoMemoryServer;
+let mongoServer: MongoMemoryReplSet;
 beforeAll(async () => {
-  mongoServer = await MongoMemoryServer.create();
+  mongoServer = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
   await mongoose.connect(mongoServer.getUri());
 });
 afterEach(async () => {

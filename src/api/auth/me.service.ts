@@ -8,12 +8,19 @@ export async function getMe(staff: StaffDocument) {
     Role.findOne({ _id: staff.roleId, organizationId: staff.organizationId }),
     OrganizationSettings.findOne({ organizationId: staff.organizationId }),
   ]);
+  const { signedDownload } = await import("../upload/upload.service.js");
+  const avatarUrl = staff.photoUploadId
+    ? (await signedDownload(String(staff.photoUploadId), staff.organizationId)).url
+    : staff.photoUrl;
+  const logoUrl = organization?.logoUploadId
+    ? (await signedDownload(String(organization.logoUploadId), staff.organizationId)).url
+    : organization?.logoUrl;
   return {
     id: String(staff._id),
     firstName: staff.firstName,
     lastName: staff.lastName,
     email: staff.email,
-    avatarUrl: staff.photoUrl,
+    avatarUrl,
     isSuperAdmin: staff.isSuperAdmin,
     roleLabel: staff.isSuperAdmin ? "Super Admin" : (role?.name ?? "Staff"),
     permissions,
@@ -23,7 +30,7 @@ export async function getMe(staff: StaffDocument) {
     organization: {
       name: organization?.name ?? "Aerwell",
       timeZone: organization?.timeZone ?? "America/Los_Angeles",
-      logoUrl: organization?.logoUrl,
+      logoUrl,
     },
     security: { autoSignOutMinutes: organization?.security?.autoSignOutMinutes ?? 30 },
   };
