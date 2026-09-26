@@ -54,25 +54,36 @@ function assertOrigin(req: IncomingMessage) {
 }
 
 /**
+ * APPOINTMENTS edit, then CLINICAL_NOTES edit, org, own and member scope
+ * (visitTarget). Run at upgrade and again on every heartbeat.
+ */
+export async function authorizeVisit(
+  staff: VerifiedAccess["staff"],
+  appointmentId: string,
+  requestId: string
+) {
+  const permissions = await resolvePermissions(staff);
+  if (!permits(permissions.APPOINTMENTS.level, "edit")) throw new ForbiddenError();
+  const actor: SocketActor = {
+    staff,
+    requestId,
+    params: { id: appointmentId },
+    permission: permissions.APPOINTMENTS,
+    permissions,
+  };
+  return { actor, appointment: await visitTarget(actor, true) };
+}
+
+/**
  * Upgrade-time authorization, the same checks an HTTP request gets: token,
- * session and credential version (verifyAccessToken), then APPOINTMENTS edit,
- * CLINICAL_NOTES edit, org, own and member scope (visitTarget).
+ * session and credential version (verifyAccessToken), then authorizeVisit.
  */
 export async function authorizeUpgrade(req: IncomingMessage): Promise<UpgradeContext> {
   const match = VISIT_WS_PATH.exec(new URL(req.url ?? "/", "http://localhost").pathname);
   if (!match?.[1]) throw new NotFoundError("Route not found");
   assertOrigin(req);
   const access = await verifyAccessToken(bearerFrom(req));
-  const permissions = await resolvePermissions(access.staff);
-  if (!permits(permissions.APPOINTMENTS.level, "edit")) throw new ForbiddenError();
-  const actor: SocketActor = {
-    staff: access.staff,
-    requestId: randomUUID(),
-    params: { id: match[1] },
-    permission: permissions.APPOINTMENTS,
-    permissions,
-  };
-  const appointment = await visitTarget(actor, true);
+  const { actor, appointment } = await authorizeVisit(access.staff, match[1], randomUUID());
   return {
     actor,
     access,

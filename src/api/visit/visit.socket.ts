@@ -19,6 +19,7 @@ import {
   type UpgradeContext,
   WS_PROTOCOL,
   authorizeUpgrade,
+  authorizeVisit,
   refuseUpgrade,
 } from "./visit.upgrade.js";
 
@@ -57,6 +58,8 @@ const CLOSE_CODES: Record<string, number> = {
   SESSION_REVOKED: 4401,
   CONSENT_REQUIRED: 4403,
   CONSENT_REVOKED: 4403,
+  ACCESS_REVOKED: 4403,
+  CAPTURE_LEASE_LOST: 4409,
   CAPTURE_IN_PROGRESS: 4409,
   VISIT_NOT_IN_PROGRESS: 4410,
   VISIT_ENDED: 4410,
@@ -83,6 +86,9 @@ export function attachVisitSockets(server: Server, options: VisitSocketOptions =
     handleProtocols: (offered) => (offered.has(WS_PROTOCOL) ? WS_PROTOCOL : false),
   });
   server.on("upgrade", (req, socket, head) => {
+    // Node drops its own socket error listener before emitting "upgrade"; without
+    // this, a client resetting mid-authorization is an uncaught exception.
+    socket.on("error", () => socket.destroy());
     authorizeUpgrade(req).then(
       (context) =>
         wss.handleUpgrade(req, socket, head, (ws) =>
@@ -182,6 +188,8 @@ class CaptureConnection {
     // A revocation (or a closed socket) while we awaited already ran fail().
     if (this.#phase !== "starting") return releaseLease(appointmentId, this.#captureId);
     const earlier = await orderedSegments(appointmentId);
+    // …and again after this read: fail() has then already released the lease.
+    if (this.#phase !== "starting") return;
     this.#names = speakerNames(earlier);
     this.#startedAt = new Date();
     this.#live = new LiveTranscription(transcriber, (update) => this.#onUpdate(update));
@@ -317,16 +325,23 @@ class CaptureConnection {
     this.ws.ping();
     this.#beating = true;
     try {
-      const code = await this.#revalidate();
-      if (code) return await this.fail(code);
-      if (this.#phase === "recording")
-        await CaptureLease.updateOne(
-          { _id: this.context.appointmentId, captureId: this.#captureId },
-          { $set: { heartbeatAt: new Date() } }
-        );
+      const code = (await this.#revalidate()) ?? (await this.#renewLease());
+      if (code) await this.fail(code);
+    } catch {
+      // Fail closed: if the database cannot confirm consent and access, capture stops.
+      await this.fail("REVALIDATE_FAILED");
     } finally {
       this.#beating = false;
     }
+  }
+
+  async #renewLease(): Promise<string | null> {
+    if (this.#phase !== "recording" && this.#phase !== "stopping") return null;
+    const renewed = await CaptureLease.updateOne(
+      { _id: this.context.appointmentId, captureId: this.#captureId },
+      { $set: { heartbeatAt: new Date() } }
+    );
+    return renewed.matchedCount ? null : "CAPTURE_LEASE_LOST";
   }
 
   /** The HTTP checks again: expiry, logout/revocation, consent and visit status. */
@@ -336,6 +351,16 @@ class CaptureConnection {
     const staff = await activeStaff(access.staff._id);
     if (!(staff && (await sessionIsLive(staff, access.sessionId, access.credentialVersion))))
       return "SESSION_REVOKED";
+    // Role, override or assignment changes apply to an open socket too, as on HTTP.
+    const allowed = await authorizeVisit(
+      staff,
+      appointmentId,
+      this.context.actor.requestId ?? ""
+    ).then(
+      () => true,
+      () => false
+    );
+    if (!allowed) return "ACCESS_REVOKED";
     if (this.#phase !== "recording") return null;
     if (!(await activeConsent(appointmentId))) return "CONSENT_REVOKED";
     const appointment = await Appointment.findById(appointmentId).select("status").lean();

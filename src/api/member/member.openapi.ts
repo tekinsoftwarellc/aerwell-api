@@ -68,9 +68,13 @@ const ops: Spec[] = [
   [
     "get",
     "/members/{id}/notes",
-    "Notes with author and per-reader isNew/newCount (CLINICAL_NOTES view). Audited.",
+    "Notes with author and per-reader isNew/newCount (CLINICAL_NOTES view); ?appointmentId= limits to one visit. Audited.",
   ],
-  ["post", "/members/{id}/notes", "Write a note (CLINICAL_NOTES edit). Audited."],
+  [
+    "post",
+    "/members/{id}/notes",
+    "Write a note (CLINICAL_NOTES edit); appointmentId (must be this member's) and recordingOffsetSec for visit notes. Audited.",
+  ],
   [
     "post",
     "/members/{id}/notes/read",

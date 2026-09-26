@@ -17,6 +17,7 @@ import { AuditEvent } from "../audit/audit.js";
 import { issueSession, revokeStaffSessions } from "../auth/session.service.js";
 import { Member } from "../member/member.model.js";
 import { setTranscriber } from "./transcribe.adapter.js";
+import { emitVisitSignal } from "./visit.events.js";
 import { CaptureLease, TranscriptSegment, VisitConsent } from "./visit.model.js";
 
 let server: Awaited<ReturnType<typeof socketServer>>;
@@ -363,4 +364,72 @@ it("own-scope providers can only capture their own appointments", async () => {
   );
   expect(await connect(server.port, v.id, nurse.accessToken).refused).toBe(404);
   expect((await as(nurse.accessToken).get(`/api/v1/appointments/${v.id}/visit`)).status).toBe(404);
+});
+
+// ---- W9 review fixes (each went red against the unfixed code: W9-review-red.log) ----
+
+it("a client resetting during the upgrade cannot crash the process (review #1)", async () => {
+  const v = await visitWorld();
+  const { PassThrough } = await import("node:stream");
+  const { IncomingMessage } = await import("node:http");
+  const socket = new PassThrough();
+  const req = Object.assign(new IncomingMessage(socket as never), {
+    url: `/ws/appointments/${v.id}/transcription`,
+    method: "GET",
+    headers: { upgrade: "websocket", connection: "Upgrade" },
+  });
+  server.server.emit("upgrade", req, socket, Buffer.alloc(0));
+  expect(() => socket.emit("error", new Error("read ECONNRESET"))).not.toThrow();
+});
+
+it("a database failure during the heartbeat fails the capture closed (review #2)", async () => {
+  const { client } = await recording(new FakeTranscriber());
+  const { StaffSession } = await import("../auth/auth.model.js");
+  vi.spyOn(StaffSession, "exists").mockRejectedValue(new Error("connection reset"));
+  expect((await client.next("error")).code).toBe("REVALIDATE_FAILED");
+  expect((await client.closed).code).toBe(4500);
+});
+
+it("a revocation while the capture is starting never opens a Transcribe stream (review #5)", async () => {
+  const v = await visitWorld();
+  const fake = new FakeTranscriber();
+  setTranscriber(fake);
+  await v.consent();
+  const find = TranscriptSegment.find.bind(TranscriptSegment);
+  vi.spyOn(TranscriptSegment, "find").mockImplementationOnce(((
+    ...args: Parameters<typeof find>
+  ) => {
+    emitVisitSignal(v.id, "consent_revoked");
+    return find(...args);
+  }) as never);
+  const audits = vi.spyOn(AuditEvent, "create");
+  const client = connect(server.port, v.id, v.director.accessToken);
+  await client.next("ready");
+  client.send({ type: "start" });
+  expect((await client.next("error")).code).toBe("CONSENT_REVOKED");
+  await client.closed;
+  await settle(100);
+  expect(fake.streams).toBe(0);
+  const attempted = audits.mock.calls.flatMap(([rows]) => (Array.isArray(rows) ? rows : [rows]));
+  expect(attempted.map((row) => (row as { action: string }).action)).not.toContain(
+    "transcription_started"
+  );
+  expect(client.messages.some((m) => m.type === "started")).toBe(false);
+});
+
+it("losing Clinical Notes access mid-capture closes the socket on the next heartbeat (review #6)", async () => {
+  const { v, client } = await recording(new FakeTranscriber());
+  const { StaffMember } = await import("../staff/staff.model.js");
+  await StaffMember.updateOne(
+    { _id: v.director.staff._id },
+    { $set: { permissionOverrides: [{ module: "CLINICAL_NOTES", level: "view", scope: "all" }] } }
+  );
+  expect((await client.next("error")).code).toBe("ACCESS_REVOKED");
+  expect((await client.closed).code).toBe(4403);
+});
+
+it("a capture whose lease was taken over stops (review #9)", async () => {
+  const { v, client } = await recording(new FakeTranscriber());
+  await CaptureLease.updateOne({ _id: v.id }, { $set: { captureId: "someone-else" } });
+  expect((await client.next("error")).code).toBe("CAPTURE_LEASE_LOST");
 });

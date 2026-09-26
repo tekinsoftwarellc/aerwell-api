@@ -274,3 +274,31 @@ it("needs CLINICAL_NOTES edit to draft or decide and view to read", async () => 
   const frontDesk = as((await staffFixture(false, 4)).accessToken);
   expect((await frontDesk.get(nextSteps(v.id))).status).toBe(403);
 });
+
+it("a failure after the model call frees the claim for a retry (review #8)", async () => {
+  const { v, ids } = await transcribed();
+  setNextStepGenerator(
+    new FakeGenerator(() => ({
+      nextSteps: [{ title: "A", detail: "B", actionType: "review", evidenceSegmentIds: [ids[0]] }],
+    }))
+  );
+  vi.spyOn(VisitSuggestion, "create").mockRejectedValueOnce(new Error("write conflict"));
+  expect((await v.api.post(nextSteps(v.id))).status).toBe(500);
+  expect((await v.api.post(nextSteps(v.id))).status).toBe(201);
+});
+
+it("a stale claim with no drafts behind it (a crash mid-call) is re-taken once (review #8)", async () => {
+  const { v, ids } = await transcribed();
+  setNextStepGenerator(
+    new FakeGenerator(() => ({
+      nextSteps: [{ title: "A", detail: "B", actionType: "review", evidenceSegmentIds: [ids[0]] }],
+    }))
+  );
+  const { Appointment } = await import("../appointment/appointment.model.js");
+  await Appointment.updateOne(
+    { _id: v.id },
+    { $set: { "visit.suggestionsRequestedAt": new Date(Date.now() - 10 * 60_000) } }
+  );
+  expect((await v.api.post(nextSteps(v.id))).status).toBe(201);
+  expect((await v.api.post(nextSteps(v.id))).body.code).toBe("SUGGESTIONS_EXIST");
+});

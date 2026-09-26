@@ -8,7 +8,12 @@ import { Appointment } from "../appointment/appointment.model.js";
 import { audit } from "../audit/audit.js";
 import { Service } from "../service/service.model.js";
 import { providerErrorName } from "./liveTranscription.js";
-import { PROMPT_VERSION, getNextStepGenerator } from "./suggestions.adapter.js";
+import {
+  type NextStepGenerator,
+  type NextStepInput,
+  PROMPT_VERSION,
+  getNextStepGenerator,
+} from "./suggestions.adapter.js";
 import { ACTION_TYPES, VisitSuggestion } from "./visit.model.js";
 import { orderedSegments, speakerNames, visitTarget } from "./visit.service.js";
 
@@ -73,32 +78,49 @@ async function modelInput(row: { _id: unknown; serviceId: unknown; reasonDetail?
   };
 }
 
-/** One generation per visit: a conditional claim, released again if the model fails. */
-export async function generateNextSteps(req: Request) {
-  const row = await visitTarget(req, true);
-  const generator = getNextStepGenerator();
-  if (!generator) throw unconfigured();
-  if (!SUGGESTABLE.includes(row.status))
-    throw new ValidationError("Start the visit first", "VISIT_NOT_STARTED");
-  const { known, input } = await modelInput(row);
-  const claimed = await Appointment.updateOne(
-    { _id: row._id, "visit.startedAt": { $ne: null }, "visit.suggestionsRequestedAt": null },
-    { $set: { "visit.suggestionsRequestedAt": new Date() } }
-  );
+/** A claim older than this with no drafts behind it (a crash mid-call) may be re-taken. */
+export const CLAIM_STALE_MS = 5 * 60_000;
+
+/**
+ * One generation per visit: a conditional claim on the appointment. A stale claim
+ * is re-taken only while no drafts exist.
+ * ponytail: the exists-then-claim pair can race a generation slower than
+ * CLAIM_STALE_MS; Bedrock calls time out far sooner.
+ */
+async function claimGeneration(appointmentId: unknown) {
+  const drafted = await VisitSuggestion.exists({ appointmentId });
+  const free = drafted
+    ? null
+    : {
+        $or: [
+          { "visit.suggestionsRequestedAt": null },
+          { "visit.suggestionsRequestedAt": { $lt: new Date(Date.now() - CLAIM_STALE_MS) } },
+        ],
+      };
   // matchedCount, not modifiedCount: the filter IS the claim (and a same-instant
   // re-write would report 0 modified even when it matched).
+  const claimed = free
+    ? await Appointment.updateOne(
+        { _id: appointmentId, "visit.startedAt": { $ne: null }, ...free },
+        { $set: { "visit.suggestionsRequestedAt": new Date() } }
+      )
+    : { matchedCount: 0 };
   if (!claimed.matchedCount)
     throw new ConflictError("Next steps were already drafted", undefined, "SUGGESTIONS_EXIST");
-  let body: unknown;
+}
+const releaseGeneration = (appointmentId: unknown) =>
+  Appointment.updateOne({ _id: appointmentId }, { $set: { "visit.suggestionsRequestedAt": null } });
+
+async function draftSteps(
+  generator: NextStepGenerator,
+  input: NextStepInput,
+  appointmentId: string
+) {
   try {
-    body = await generator.generate(input);
+    return await generator.generate(input);
   } catch (error) {
-    await Appointment.updateOne(
-      { _id: row._id },
-      { $set: { "visit.suggestionsRequestedAt": null } }
-    );
     logger.warn(
-      { appointmentId: String(row._id), providerErrorName: providerErrorName(error) },
+      { appointmentId, providerErrorName: providerErrorName(error) },
       "Next-step generation failed"
     );
     throw new AppError(
@@ -109,37 +131,54 @@ export async function generateNextSteps(req: Request) {
       "SUGGESTIONS_FAILED"
     );
   }
-  const steps = groundNextSteps(body, known);
-  const rows = await mongoose.connection.transaction(async (session) => {
-    const created = await VisitSuggestion.create(
-      steps.map((step, position) => ({
-        organizationId: row.organizationId,
-        appointmentId: row._id,
-        memberId: row.memberId,
-        actionType: step.actionType,
-        draft: { title: step.title, detail: step.detail },
-        evidenceSegmentIds: step.evidenceSegmentIds,
-        modelId: generator.modelId,
-        promptVersion: PROMPT_VERSION,
-        position,
-      })),
-      { session, ordered: true }
+}
+
+export async function generateNextSteps(req: Request) {
+  const row = await visitTarget(req, true);
+  const generator = getNextStepGenerator();
+  if (!generator) throw unconfigured();
+  if (!SUGGESTABLE.includes(row.status))
+    throw new ValidationError("Start the visit first", "VISIT_NOT_STARTED");
+  const { known, input } = await modelInput(row);
+  await claimGeneration(row._id);
+  try {
+    const body = await draftSteps(generator, input, String(row._id));
+    const steps = groundNextSteps(body, known);
+    const rows = await mongoose.connection.transaction(async (session) => {
+      const created = await VisitSuggestion.create(
+        steps.map((step, position) => ({
+          organizationId: row.organizationId,
+          appointmentId: row._id,
+          memberId: row.memberId,
+          actionType: step.actionType,
+          draft: { title: step.title, detail: step.detail },
+          evidenceSegmentIds: step.evidenceSegmentIds,
+          modelId: generator.modelId,
+          promptVersion: PROMPT_VERSION,
+          position,
+        })),
+        { session, ordered: true }
+      );
+      await audit(
+        req,
+        "suggestions_generated",
+        "VisitSuggestions",
+        String(row._id),
+        String(row.memberId),
+        session
+      );
+      return created;
+    });
+    logger.info(
+      { appointmentId: String(row._id), kept: rows.length, dropped: countOf(body) - rows.length },
+      "Next steps drafted"
     );
-    await audit(
-      req,
-      "suggestions_generated",
-      "VisitSuggestions",
-      String(row._id),
-      String(row.memberId),
-      session
-    );
-    return created;
-  });
-  logger.info(
-    { appointmentId: String(row._id), kept: rows.length, dropped: countOf(body) - rows.length },
-    "Next steps drafted"
-  );
-  return { items: rows.map((doc) => view(doc.toObject())) };
+    return { items: rows.map((doc) => view(doc.toObject())) };
+  } catch (error) {
+    // Any failure before the drafts commit frees the claim for a retry.
+    await releaseGeneration(row._id);
+    throw error;
+  }
 }
 
 const countOf = (body: unknown) => {

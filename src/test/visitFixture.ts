@@ -94,6 +94,7 @@ export async function socketServer(options: VisitSocketOptions = {}) {
   const port = (server.address() as AddressInfo).port;
   return {
     port,
+    server,
     close: async () => {
       detach();
       await new Promise<void>((resolve) => server.close(() => resolve()));
