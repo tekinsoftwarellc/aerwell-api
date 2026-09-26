@@ -24,7 +24,8 @@ import { appointmentTarget } from "./booking.service.js";
 import { TRANSITIONS, cancellationTerms } from "./lifecycle.service.js";
 
 type Row = AppointmentData & { _id: Types.ObjectId };
-const VISIT_STATUSES: AppointmentStatus[] = ["checked_in", "in_progress", "completed"];
+/** Statuses that count as a visit (check-in onward). */
+export const VISIT_STATUSES: AppointmentStatus[] = ["checked_in", "in_progress", "completed"];
 const DEFAULT_HIDDEN: AppointmentStatus[] = ["cancelled"];
 const MAX_RANGE_DAYS = 62;
 const byId = <T extends { _id: unknown }>(rows: T[]) =>

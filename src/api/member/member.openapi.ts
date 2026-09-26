@@ -52,7 +52,7 @@ const ops: Spec[] = [
   [
     "get",
     "/members/{id}/overview",
-    "Flags, notes preview (null without CLINICAL_NOTES view), later-wave blocks null. Audited.",
+    "Flags, notes preview (null without CLINICAL_NOTES view); visits, todayAppointment and appointments {todayCount, upcoming} (null without APPOINTMENTS view; own scope = own appointments); health/labs/dexa null (served by clinical routes). Audited.",
   ],
   [
     "get",

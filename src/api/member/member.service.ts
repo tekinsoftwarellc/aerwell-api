@@ -7,6 +7,7 @@ import {
   NotFoundError,
 } from "../../common/errors/AppError.js";
 import { actor, escapedSearch, pagination } from "../../common/http.js";
+import { appointmentOverview } from "../appointment/overview.service.js";
 import { audit } from "../audit/audit.js";
 import { Location } from "../location/location.model.js";
 import { permits } from "../role/permission.js";
@@ -292,13 +293,14 @@ export async function memberOverview(req: Request) {
     ]);
     notes = { newCount, items };
   }
+  const appointments = await appointmentOverview(req, member);
   await audit(req, "viewed", "MemberOverview", String(member._id), String(member._id));
   return {
     flags,
     notes,
-    // Appointment-derived blocks arrive with W6; clinical summaries with W8.
-    visits: null,
-    todayAppointment: null,
+    // Appointment blocks are null without APPOINTMENTS view. Clinical summaries
+    // are served by the W8 clinical routes, so these three stay null.
+    ...appointments,
     health: null,
     labs: null,
     dexa: null,
