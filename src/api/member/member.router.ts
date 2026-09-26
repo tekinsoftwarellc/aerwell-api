@@ -23,6 +23,7 @@ import {
   membershipParams,
   membershipPatch,
   noteCreate,
+  notesQuery,
   notesRead,
   searchQuery,
   viewParams,
@@ -110,7 +111,14 @@ secured(
   resolveFlag
 );
 
-secured(r, "get", "/members/:id/notes", notes("view"), { params: idParams }, listNotes);
+secured(
+  r,
+  "get",
+  "/members/:id/notes",
+  notes("view"),
+  { params: idParams, query: notesQuery },
+  listNotes
+);
 secured(
   r,
   "post",
