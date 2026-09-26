@@ -1,0 +1,143 @@
+{
+  "$schema": "https://biomejs.dev/schemas/1.9.0/schema.json",
+  "organizeImports": {
+    "enabled": true
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "complexity": {
+        "noForEach": "warn",
+        "useSimplifiedLogicExpression": "warn",
+        "noBannedTypes": "error",
+        "noExcessiveCognitiveComplexity": {
+          "level": "warn",
+          "options": { "maxAllowedComplexity": 15 }
+        },
+        "noVoid": "error",
+        "useLiteralKeys": "off",
+        "useArrowFunction": "warn",
+        "useFlatMap": "warn",
+        "useOptionalChain": "error",
+        "noStaticOnlyClass": "off"
+      },
+      "correctness": {
+        "noUnusedImports": "error",
+        "noUnusedVariables": "error",
+        "noUndeclaredVariables": "error",
+        "useExhaustiveDependencies": "warn",
+        "noConstAssign": "error",
+        "noNewSymbol": "error",
+        "noUndeclaredDependencies": "warn"
+      },
+      "style": {
+        "noNonNullAssertion": "warn",
+        "useConst": "error",
+        "useTemplate": "error",
+        "useNodejsImportProtocol": "error",
+        "useImportType": "error",
+        "useExportType": "error",
+        "noParameterAssign": "error",
+        "useNamingConvention": {
+          "level": "warn",
+          "options": {
+            "strictCase": false,
+            "conventions": [
+              { "selector": { "kind": "function" }, "formats": ["camelCase", "PascalCase"] },
+              { "selector": { "kind": "variable" }, "formats": ["camelCase", "CONSTANT_CASE", "PascalCase"] },
+              { "selector": { "kind": "typeLike" }, "formats": ["PascalCase"] },
+              { "selector": { "kind": "interface" }, "formats": ["PascalCase"], "match": "I[A-Z].*" },
+              { "selector": { "kind": "enum" }, "formats": ["PascalCase"] },
+              { "selector": { "kind": "enumMember" }, "formats": ["PascalCase", "CONSTANT_CASE"] },
+              { "selector": { "kind": "classMethod" }, "formats": ["camelCase"] }
+            ]
+          }
+        },
+        "useNumberNamespace": "error",
+        "useForOf": "error",
+        "noVar": "error",
+        "noInferrableTypes": "warn",
+        "useExponentiationOperator": "warn",
+        "useEnumInitializers": "error",
+        "noUselessElse": "warn",
+        "noArguments": "error",
+        "useDefaultParameterLast": "error"
+      },
+      "suspicious": {
+        "noExplicitAny": "error",
+        "noConsoleLog": "warn",
+        "noDoubleEquals": "error",
+        "noAssignInExpressions": "error",
+        "noConfusingVoidType": "error",
+        "noEmptyInterface": "error",
+        "noMisleadingCharacterClass": "error",
+        "noShadowRestrictedNames": "error",
+        "useAwait": "warn",
+        "noAsyncPromiseExecutor": "error",
+        "noMisrefactoredShorthandAssign": "error",
+        "noUnsafeDeclarationMerging": "error",
+        "useIsArray": "error",
+        "noFallthroughSwitchClause": "error",
+        "noImplicitAnyLet": "error",
+        "useNamespaceKeyword": "error",
+        "noRedeclare": "error",
+        "noGlobalIsFinite": "error",
+        "noGlobalIsNan": "error"
+      },
+      "security": {
+        "noDangerouslySetInnerHtml": "error"
+      },
+      "nursery": {
+        "noCommonJs": "error"
+      },
+      "performance": {
+        "noAccumulatingSpread": "warn",
+        "noDelete": "warn"
+      }
+    }
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double",
+      "semicolons": "always",
+      "trailingCommas": "es5",
+      "arrowParentheses": "always",
+      "bracketSpacing": true
+    },
+    "globals": ["Express"]
+  },
+  "files": {
+    "ignore": ["node_modules", "dist", "coverage", "*.json", "uploads"]
+  },
+  "overrides": [
+    {
+      "include": ["src/config/env.ts", "src/config/swagger.ts", "src/common/utils/email.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useNamingConvention": "off",
+            "noUnusedTemplateLiteral": "off",
+            "useTemplate": "off"
+          }
+        }
+      }
+    },
+    {
+      "include": ["src/scripts/**"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsoleLog": "off"
+          }
+        }
+      }
+    }
+  ]
+}

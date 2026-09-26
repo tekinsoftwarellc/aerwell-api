@@ -1,0 +1,40 @@
+import compression from "compression";
+import cookieParser from "cookie-parser";
+import cors from "cors";
+import express, { type Express } from "express";
+import mongoSanitize from "express-mongo-sanitize";
+import helmet from "helmet";
+import hpp from "hpp";
+import swaggerUi from "swagger-ui-express";
+import { healthRouter } from "./api/health/health.router.js";
+import { NotFoundError } from "./common/errors/AppError.js";
+import { correlationId } from "./common/middleware/correlationId.js";
+import { errorHandler } from "./common/middleware/errorHandler.js";
+import { createRateLimiter } from "./common/middleware/rateLimiter.js";
+import { requestLogger } from "./common/middleware/requestLogger.js";
+import { type CacheService, createCacheService } from "./common/services/cache.service.js";
+import { env } from "./config/env.js";
+import { swaggerSpec } from "./config/swagger.js";
+
+export const createServer = (cache: CacheService = createCacheService()): Express => {
+  const app = express();
+  app.set("trust proxy", 1);
+  app.use(correlationId);
+  app.use(helmet());
+  const origins = env.CORS_ORIGIN.split(",").map((origin) => origin.trim());
+  app.use(cors({ origin: origins.includes("*") ? true : origins, credentials: true }));
+  app.use(compression());
+  app.use(createRateLimiter(cache));
+  app.use(requestLogger);
+  app.use(express.json({ limit: "10kb" }));
+  app.use(express.urlencoded({ extended: true, limit: "10kb" }));
+  app.use(cookieParser());
+  app.use(mongoSanitize());
+  app.use(hpp());
+  if (env.NODE_ENV !== "production")
+    app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+  app.use("/api/v1/health", healthRouter);
+  app.use((_req, _res, next) => next(new NotFoundError("Route not found")));
+  app.use(errorHandler);
+  return app;
+};

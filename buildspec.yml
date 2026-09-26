@@ -1,0 +1,35 @@
+version: 0.2
+
+env:
+  shell: bash
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 22
+    commands:
+      - node -v
+      - npm ci --no-audit --no-fund
+  build:
+    commands:
+      - npm run typecheck
+      - npm run lint
+      - npm test
+      - npm run build
+
+artifacts:
+  files:
+    - dist/**/*
+    - package.json
+    - package-lock.json
+    - .env.example
+    - appspec.yml
+    - scripts/prepare_app_dir.sh
+    - scripts/start_server.sh
+    - scripts/stop_server.sh
+    - scripts/validate_service.sh
+  discard-paths: no
+
+cache:
+  paths:
+    - /root/.npm/**/*

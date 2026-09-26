@@ -1,0 +1,27 @@
+version: 0.0
+os: linux
+
+files:
+  - source: /
+    destination: /home/ubuntu/aerwell-api
+
+hooks:
+  ApplicationStop:
+    - location: scripts/stop_server.sh
+      timeout: 60
+      runas: ubuntu
+
+  AfterInstall:
+    - location: scripts/prepare_app_dir.sh
+      timeout: 60
+      runas: root
+
+  ApplicationStart:
+    - location: scripts/start_server.sh
+      timeout: 180
+      runas: ubuntu
+
+  ValidateService:
+    - location: scripts/validate_service.sh
+      timeout: 120
+      runas: ubuntu
