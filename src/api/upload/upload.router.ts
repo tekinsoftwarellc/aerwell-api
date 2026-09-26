@@ -17,7 +17,13 @@ import {
 export const uploadRouter = Router();
 const input = z
   .object({
-    purpose: z.enum(["staff_document", "staff_photo", "organization_logo", "member_photo"]),
+    purpose: z.enum([
+      "staff_document",
+      "staff_photo",
+      "organization_logo",
+      "member_photo",
+      "clinical_document",
+    ]),
     contentType: z.enum(["image/jpeg", "image/png", "application/pdf"]),
     sizeBytes: z
       .number()
@@ -27,14 +33,17 @@ const input = z
   })
   .strict()
   .refine(
-    (v) => v.purpose === "staff_document" || v.contentType !== "application/pdf",
-    "Images must use JPEG or PNG"
+    (v) =>
+      ["staff_document", "clinical_document"].includes(v.purpose) ||
+      v.contentType !== "application/pdf",
+    { message: "Images must use JPEG or PNG", path: ["contentType"] }
   );
 secured(uploadRouter, "post", "/uploads/presign", null, { body: input }, async (req) => {
   const permissions = await resolvePermissions(actor(req));
   const modules = {
     organization_logo: "SYSTEM_SETTINGS",
     member_photo: "MEMBER_RECORDS",
+    clinical_document: "LABS_SCANS",
   } as const;
   const module = modules[req.body.purpose as keyof typeof modules] ?? "STAFF_RECORDS";
   if (!permits(permissions[module].level, "edit")) throw new ForbiddenError();
