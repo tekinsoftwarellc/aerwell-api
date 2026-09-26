@@ -17,6 +17,10 @@ export const envSchema = z
     ALFRED_AUTH_JWKS_URL: z.string().url().optional(),
     ALFRED_AUTH_CLIENT_ID: z.string().optional(),
     ALFRED_AUTH_CLIENT_SECRET: z.string().optional(),
+    STAFF_JWT_SECRET: z.string().min(32).optional(),
+    AWS_REGION: z.string().optional(),
+    SES_FROM_EMAIL: z.string().email().optional(),
+    ADMIN_BASE_URL: z.string().url().optional(),
     AERWELL_ORG_ID: z.string().optional(),
   })
   .refine((value) => value.NODE_ENV !== "production" || !value.CORS_ORIGIN.includes("*"), {

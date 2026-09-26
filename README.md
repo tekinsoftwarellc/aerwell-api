@@ -1,6 +1,6 @@
 # Aerwell API
 
-Express 4 / TypeScript / Mongo scaffold. Node 22 or later. W1 staff, permission, audit and seed foundations are present; authentication integration is pending an architecture decision because the upstream Alfred staff realm was retired. Protected application routes are not yet mounted.
+Express 4 / TypeScript / Mongo scaffold. Node 22 or later. Staff authentication is standalone: local bcrypt credentials, Aerwell HS256 access tokens, opaque rotating refresh tokens, email verification and password recovery. Alfred and Everhaus staff credentials are never accepted.
 
 ```sh
 npm ci
@@ -19,8 +19,12 @@ npm run smoke
 
 Tests use isolated in-memory MongoDB processes and do not load `.env`. The smoke launches the compiled server against another memory Mongo, calls health with curl, and checks graceful shutdown. Test tooling requires downloading a MongoDB binary once.
 
-The development seed requires `AERWELL_ORG_ID` and all four `SEED_SUPER_ADMIN_*` variables named in `.env.example`. It links an explicitly supplied authentication account; it does not create credentials. Run `npm run seed:dev -- --confirm-local-seed` only against localhost MongoDB in a non-production environment. It inserts default roles, organization settings, a Las Vegas location, two environments and a supplied super admin. Re-running preserves existing edits and deactivated accounts. It is never run by deployment hooks.
+The development seed requires `AERWELL_ORG_ID` and all four `SEED_SUPER_ADMIN_*` variables named in `.env.example`. It creates local bcrypt credentials from `SEED_SUPER_ADMIN_PASSWORD`; no Alfred account is needed. Run `npm run seed:dev -- --confirm-local-seed` only against localhost MongoDB in a non-production environment. It inserts default roles, organization settings, a Las Vegas location, two environments and a supplied super admin. Re-running preserves existing edits and deactivated accounts. It is never run by deployment hooks.
 
 Deployment scaffolding uses `/home/ubuntu/aerwell-api`, PM2 `aerwell-api`, and port 3003. Hooks never source shell environment files. Configure the shared EC2 reverse proxy so it replaces forwarded client headers (Express trusts one proxy hop). Verify the existing EC2 `CodeDeploy=everhaus-api-dev` tag before deploying the CloudFormation stack; this default is inherited from the sibling template, not verified against AWS. Atlas, DNS/reverse proxy routing, CodeStar connection, and pipeline creation require separate setup and approval. No production service is configured or deployed by this repository's local scaffold.
 
 Direct package versions match `everhaus-api-new/package-lock.json`; this includes TypeScript 5.9.3 (the plan's prose referred to 5.6). `@vitest/coverage-v8` 4.0.18 is added to match Vitest because the sibling lock omits a coverage provider. Cache is memory-only and reserved for infrastructure counters and tokens; never cache PHI.
+
+Staff authentication requires an independent `STAFF_JWT_SECRET` of at least 32 characters and `AERWELL_ORG_ID`. Generate and store the secret outside source control. Never reuse Everhaus secrets. Missing authentication configuration returns 503; there is no fallback key. Email verification and recovery require `AWS_REGION`, `SES_FROM_EMAIL` and `ADMIN_BASE_URL`; no external email is sent by tests. Recovery always returns a generic acceptance response, including when delivery is unconfigured. The login endpoint fails closed if required OTP delivery is unavailable.
+
+Local routes: `POST /api/v1/auth/login`, `/refresh`, `/logout`, `/2fa/verify`, `/forgot-password`, `/reset-password`, `/change-password`. `GET /api/v1/me`, `/me/counters`, `/permissions/modules` require a local active session. Access tokens live 15 minutes; sessions expire after 30 days. Refresh rotates atomically; reusing an old refresh token revokes its session. Every authenticated request checks current staff status, credential version and session revocation. Password change/reset revokes every session. No local JWT is accepted by Alfred; future Alfred member-service calls use separate service credentials.

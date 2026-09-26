@@ -1,3 +1,4 @@
+import { authPaths } from "../api/auth/auth.openapi.js";
 const envelope = (data: Record<string, unknown>) => ({
   type: "object",
   required: ["success", "status", "message", "data", "statusCode"],
@@ -17,6 +18,7 @@ export const swaggerSpec = {
   openapi: "3.0.3",
   info: { title: "Aerwell API", version: "0.1.0", description: "Aerwell staff API scaffold" },
   paths: {
+    ...authPaths,
     "/api/v1/health": {
       get: {
         summary: "Process and Mongo health",
@@ -70,6 +72,7 @@ export const swaggerSpec = {
     },
   },
   components: {
+    securitySchemes: { staffBearer: { type: "http", scheme: "bearer", bearerFormat: "JWT" } },
     schemas: {
       ErrorResponse: {
         type: "object",

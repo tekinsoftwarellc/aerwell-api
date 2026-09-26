@@ -12,7 +12,7 @@ async function main(): Promise<void> {
   const input = {
     organizationId: env.AERWELL_ORG_ID ?? "",
     email: process.env["SEED_SUPER_ADMIN_EMAIL"] ?? "",
-    authAccountId: process.env["SEED_SUPER_ADMIN_AUTH_ACCOUNT_ID"] ?? "",
+    password: process.env["SEED_SUPER_ADMIN_PASSWORD"] ?? "",
     firstName: process.env["SEED_SUPER_ADMIN_FIRST_NAME"] ?? "",
     lastName: process.env["SEED_SUPER_ADMIN_LAST_NAME"] ?? "",
   };

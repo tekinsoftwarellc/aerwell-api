@@ -8,7 +8,7 @@ it("seeds Aerwell defaults idempotently without reactivating or changing existin
   const input = {
     organizationId: "org-seed",
     email: "first@example.invalid",
-    authAccountId: "subject-seed",
+    password: "Seed-test-passphrase!9",
     firstName: "Seed",
     lastName: "Admin",
   };

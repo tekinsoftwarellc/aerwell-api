@@ -3,7 +3,7 @@ import { permissionFields } from "../role/role.model.js";
 const schema = new Schema(
   {
     organizationId: { type: String, required: true, index: true },
-    authAccountId: { type: String, required: true },
+    authAccountId: { type: String },
     firstName: { type: String, required: true, trim: true },
     lastName: { type: String, required: true, trim: true },
     email: { type: String, required: true, trim: true, lowercase: true },
@@ -45,7 +45,10 @@ const schema = new Schema(
   { timestamps: true }
 );
 schema.index({ organizationId: 1, email: 1 }, { unique: true });
-schema.index({ organizationId: 1, authAccountId: 1 }, { unique: true });
+schema.index(
+  { organizationId: 1, authAccountId: 1 },
+  { unique: true, partialFilterExpression: { authAccountId: { $type: "string" } } }
+);
 schema.index({ organizationId: 1, accountStatus: 1, lastName: 1 });
 export type StaffData = InferSchemaType<typeof schema>;
 export type StaffDocument = HydratedDocument<StaffData>;

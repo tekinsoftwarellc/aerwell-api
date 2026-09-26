@@ -6,6 +6,7 @@ import mongoSanitize from "express-mongo-sanitize";
 import helmet from "helmet";
 import hpp from "hpp";
 import swaggerUi from "swagger-ui-express";
+import { createAuthRouter, meRouter } from "./api/auth/auth.router.js";
 import { healthRouter } from "./api/health/health.router.js";
 import { NotFoundError } from "./common/errors/AppError.js";
 import { correlationId } from "./common/middleware/correlationId.js";
@@ -34,6 +35,8 @@ export const createServer = (cache: CacheService = createCacheService()): Expres
   if (env.NODE_ENV !== "production")
     app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
   app.use("/api/v1/health", healthRouter);
+  app.use("/api/v1/auth", createAuthRouter(cache));
+  app.use("/api/v1", meRouter);
   app.use((_req, _res, next) => next(new NotFoundError("Route not found")));
   app.use(errorHandler);
   return app;

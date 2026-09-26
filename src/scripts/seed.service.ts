@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { StaffCredential } from "../api/auth/auth.model.js";
+import { passwordSchema } from "../api/auth/auth.schema.js";
+import { hashPassword } from "../api/auth/password.js";
 import { Environment, Location } from "../api/location/location.model.js";
 import { MODULES, seedRoles } from "../api/role/permission.js";
 import { Role } from "../api/role/role.model.js";
@@ -8,7 +11,7 @@ export const seedInputSchema = z
   .object({
     organizationId: z.string().min(1),
     email: z.string().email(),
-    authAccountId: z.string().min(1),
+    password: passwordSchema,
     firstName: z.string().min(1),
     lastName: z.string().min(1),
   })
@@ -72,15 +75,29 @@ export async function seedDevelopmentData(input: SeedInput): Promise<void> {
   const data = seedInputSchema.parse(input);
   const location = await seedOrganization(data.organizationId);
   const role = await seedRoleTemplates(data.organizationId);
-  await StaffMember.updateOne(
-    { organizationId: data.organizationId, authAccountId: data.authAccountId },
+  const staff = await StaffMember.findOneAndUpdate(
+    { organizationId: data.organizationId, email: data.email.toLowerCase() },
     {
       $setOnInsert: {
-        ...data,
+        organizationId: data.organizationId,
+        email: data.email.toLowerCase(),
+        firstName: data.firstName,
+        lastName: data.lastName,
         roleId: role._id,
         isSuperAdmin: true,
         accountStatus: "active",
         homeLocationId: location._id,
+      },
+    },
+    { upsert: true, new: true }
+  );
+  await StaffCredential.updateOne(
+    { staffId: staff._id },
+    {
+      $setOnInsert: {
+        staffId: staff._id,
+        organizationId: data.organizationId,
+        passwordHash: await hashPassword(data.password),
       },
     },
     { upsert: true }
