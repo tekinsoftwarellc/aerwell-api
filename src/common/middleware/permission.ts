@@ -6,9 +6,12 @@ export const requireStaff: RequestHandler = (req, _res, next) => {
   if (!req.staff) return next(new UnauthorizedError());
   next();
 };
-export const requirePermission =
-  (module: PermissionModule, level: PermissionLevel): RequestHandler =>
-  async (req, _res, next) => {
+export const requirePermission = (
+  module: PermissionModule,
+  level: PermissionLevel
+): RequestHandler =>
+  // Named so the route-guard test can see it in every chain.
+  async function permissionGuard(req, _res, next) {
     try {
       if (!req.staff) throw new UnauthorizedError();
       const resolved = await resolvePermissions(req.staff);

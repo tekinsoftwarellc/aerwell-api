@@ -47,6 +47,7 @@ export function createAuthRouter(cache: CacheService) {
   );
   router.post(
     "/logout",
+    limit("logout", 30),
     validate(refreshSchema),
     asyncHandler(async (req, res) => {
       await logoutSession(req.body.refreshToken);

@@ -32,7 +32,11 @@ export interface ScopedRateLimitOptions {
  */
 export const createScopedRateLimiter = (cache: CacheService, options: ScopedRateLimitOptions) => {
   const { prefix, max, keyFn, message } = options;
-  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  return async function scopedRateLimit(
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
     const key = `${prefix}${keyFn ? keyFn(req) : requestIp(req)}`;
 
     const count = await cache.increment(key, options.windowSeconds);

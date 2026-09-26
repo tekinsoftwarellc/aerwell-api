@@ -22,7 +22,8 @@ function resolveSchemas(schema: ZodSchema | ValidateOptions): ValidateOptions {
 }
 
 export const validate = (schema: ZodSchema | ValidateOptions) => {
-  return (req: Request, res: Response, next: NextFunction): void => {
+  // Named so the route-guard test can see it in every chain.
+  return function zodValidate(req: Request, res: Response, next: NextFunction): void {
     const errors: { path: string; message: string }[] = [];
     for (const [target, targetSchema] of Object.entries(resolveSchemas(schema)) as [
       ValidationTarget,

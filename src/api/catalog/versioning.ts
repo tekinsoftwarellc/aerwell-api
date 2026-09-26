@@ -1,11 +1,17 @@
 import type { Request } from "express";
-import mongoose, { type ClientSession, type Document } from "mongoose";
+import mongoose, { type ClientSession } from "mongoose";
 import { ConflictError } from "../../common/errors/AppError.js";
 import { audit } from "../audit/audit.js";
 import { CatalogRevision } from "./catalog.model.js";
 
 export type CatalogEntity = "service" | "market" | "membership_plan" | "delivery_modifier";
-type VersionedDoc = Document & { version?: number };
+/** What the versioning helpers use of a catalog document (catalog models version with `version`). */
+export interface CatalogDoc {
+  _id: unknown;
+  toObject(options?: { depopulate?: boolean }): Record<string, unknown>;
+  save(options?: { session?: ClientSession }): Promise<unknown>;
+}
+type VersionedDoc = CatalogDoc & { version?: number };
 const conflict = () =>
   new ConflictError(
     "This record changed since you opened it. Reload and try again.",

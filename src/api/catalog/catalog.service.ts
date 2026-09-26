@@ -1,5 +1,4 @@
 import type { Request } from "express";
-import type { Document } from "mongoose";
 import { BadRequestError, ConflictError, NotFoundError } from "../../common/errors/AppError.js";
 import { evaluateEntitlement } from "../entitlement/evaluate.js";
 import { loadCatalogSnapshot } from "../entitlement/snapshot.js";
@@ -18,10 +17,15 @@ import {
   previewSchema,
   revisionQuerySchema,
 } from "./catalog.schema.js";
-import { type CatalogEntity, assertExpectedVersion, saveVersioned } from "./versioning.js";
+import {
+  type CatalogDoc,
+  type CatalogEntity,
+  assertExpectedVersion,
+  saveVersioned,
+} from "./versioning.js";
 
 const orgOf = (req: Request) => req.staff?.organizationId ?? "";
-function serialize(doc: Document) {
+function serialize(doc: CatalogDoc) {
   const { _id, organizationId, __v, ...value } = doc.toObject({ depopulate: true });
   return { ...value, id: String(_id) };
 }
@@ -51,7 +55,7 @@ async function assertAll(
 async function create(
   req: Request,
   entity: CatalogEntity,
-  model: { exists: (f: object) => PromiseLike<unknown>; new (v: object): Document },
+  model: { exists: (f: object) => PromiseLike<unknown>; new (v: object): CatalogDoc },
   input: { slug: string }
 ) {
   await assertSlugFree(model, orgOf(req), input.slug);
@@ -160,7 +164,7 @@ export async function createPlan(req: Request) {
   return create(req, "membership_plan", MembershipPlan, withBenefitIds(input) as PlanInput);
 }
 function editablePlan(doc: InstanceType<typeof MembershipPlan>) {
-  const { slug, ...value } = serialize(doc) as PlanInput & Record<string, unknown>;
+  const { slug, ...value } = serialize(doc) as unknown as PlanInput & Record<string, unknown>;
   return planCreateSchema.omit({ slug: true }).parse({
     name: value.name,
     brand: value.brand,

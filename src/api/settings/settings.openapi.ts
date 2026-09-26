@@ -2,7 +2,8 @@ const error = { $ref: "#/components/schemas/ErrorResponse" };
 const operation = (method: string, path: string) => ({
   summary: `${method.toUpperCase()} ${path}`,
   tags: ["Settings and staff"],
-  security: [{ staffBearer: [] }],
+  // Accepting an invite happens before the person has a session: public, rate limited.
+  security: path === "/auth/accept-invite" ? [] : [{ staffBearer: [] }],
   ...(path.includes("{")
     ? {
         parameters: [...path.matchAll(/\{([^}]+)\}/g)].map((match) => ({

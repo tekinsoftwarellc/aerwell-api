@@ -325,3 +325,44 @@ it("review LOW: an idempotency key reused for another provider is refused, not r
   });
   expect(other.body.code).toBe("IDEMPOTENCY_KEY_REUSED");
 });
+
+it("W11: two members racing for one provider slot: only one writer ever attempts the insert", async () => {
+  const w = await bookingWorld();
+  const [ann, bob] = [await w.member(), await w.member()];
+  // Barrier after the capacity read: without the provider lock both writers
+  // would see the slot free before either inserts.
+  let readers = 0;
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const exists = Appointment.exists.bind(Appointment);
+  vi.spyOn(Appointment, "exists").mockImplementation(((filter: object) => {
+    const query = exists(filter);
+    const then = query.then.bind(query);
+    return Object.assign(query, {
+      then: (ok: (v: unknown) => unknown, bad?: (e: unknown) => unknown) =>
+        then(async (value) => {
+          readers += 1;
+          if (readers >= 2) release();
+          await Promise.race([gate, new Promise((r) => setTimeout(r, 300))]);
+          return value;
+        }).then(ok, bad),
+    });
+  }) as typeof Appointment.exists);
+  const inserts: string[] = [];
+  const create = Appointment.create.bind(Appointment);
+  vi.spyOn(Appointment, "create").mockImplementation(((docs: { memberId: unknown }[], o: object) => {
+    inserts.push(String(docs[0]?.memberId));
+    return create(docs, o);
+  }) as unknown as typeof Appointment.create);
+  const results = await Promise.all(
+    [ann, bob].map((m) =>
+      w.api.post("/api/v1/appointments", w.booking(m._id, "clinician-telehealth-visit", "11:00"))
+    )
+  );
+  expect(results.map((r) => r.status).sort()).toEqual([201, 409]);
+  expect(results.find((r) => r.status === 409)?.body.code).toBe("SLOT_UNAVAILABLE");
+  expect(inserts).toHaveLength(1);
+  expect(await Appointment.countDocuments({ startAt: at(DAY, "11:00") })).toBe(1);
+});
