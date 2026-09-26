@@ -8,6 +8,8 @@ process.env["MONGODB_URI"] = "mongodb://127.0.0.1:27017/aerwell-test-placeholder
 process.env["STAFF_JWT_SECRET"] = "test-only-signing-key-not-for-deployment-12345";
 process.env["AERWELL_ORG_ID"] = "org-test";
 process.env["ADMIN_BASE_URL"] = "http://localhost:3200";
+// The global per-IP limiter would count every request a whole test file makes.
+process.env["RATE_LIMIT_MAX"] = "1000000";
 let mongoServer: MongoMemoryReplSet;
 beforeAll(async () => {
   mongoServer = await MongoMemoryReplSet.create({ replSet: { count: 1 } });

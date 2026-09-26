@@ -17,17 +17,20 @@ server.on("error", () => {
   process.exit(1);
 });
 let shuttingDown = false;
-const shutdown = (): void => {
+// pm2 must allow this long (start_server.sh passes --kill-timeout) or live captures lose their tail.
+const SHUTDOWN_MS = 30_000;
+const shutdown = async (): Promise<void> => {
   if (shuttingDown) return;
   shuttingDown = true;
   clearInterval(jobs);
-  const timeout = setTimeout(() => process.exit(1), 10_000).unref();
-  closeVisitSockets();
+  const timeout = setTimeout(() => process.exit(1), SHUTDOWN_MS).unref();
+  // Stop taking connections, then flush live captures while Mongo is still connected.
   server.close(async () => {
     await disconnectDB();
     clearTimeout(timeout);
     process.exit(0);
   });
+  await closeVisitSockets(SHUTDOWN_MS - 10_000);
 };
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);

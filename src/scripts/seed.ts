@@ -1,14 +1,16 @@
 import mongoose from "mongoose";
 import { env } from "../config/env.js";
-import { seedDevelopmentData } from "./seed.service.js";
+import { seedDevelopmentData, seedTargetAllowed } from "./seed.service.js";
 
-// Explicit local operator invocation only. Never automatically run by deploy hooks.
+// Explicit operator invocation only. Never automatically run by deploy hooks.
+// Localhost by default; the dev Atlas database only with
+// `--confirm-remote-dev-seed=<database name>` matching MONGODB_URI (never production).
 async function main(): Promise<void> {
   if (env.NODE_ENV === "production") throw new Error("Development seed cannot run in production");
   if (!process.argv.includes("--confirm-local-seed"))
     throw new Error("Explicit --confirm-local-seed is required");
-  if (!/^mongodb:\/\/(127\.0\.0\.1|localhost)(:|\/)/.test(env.MONGODB_URI))
-    throw new Error("Development seed accepts localhost MongoDB only");
+  if (!seedTargetAllowed(env.MONGODB_URI, process.argv))
+    throw new Error("Development seed target is not confirmed");
   const input = {
     organizationId: env.AERWELL_ORG_ID ?? "",
     email: process.env["SEED_SUPER_ADMIN_EMAIL"] ?? "",

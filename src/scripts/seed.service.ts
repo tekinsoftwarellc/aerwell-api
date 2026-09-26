@@ -116,3 +116,21 @@ export async function seedDevelopmentData(input: SeedInput): Promise<void> {
     { upsert: true }
   );
 }
+
+/**
+ * Localhost always; any other MongoDB only when the operator names its database
+ * with `--confirm-remote-dev-seed=<name>` (the deploy runbook's dev bootstrap).
+ */
+export function seedTargetAllowed(uri: string, argv: string[]): boolean {
+  if (/^mongodb:\/\/(127\.0\.0\.1|localhost)(:|\/)/.test(uri)) return true;
+  const confirmed = argv
+    .find((arg) => arg.startsWith("--confirm-remote-dev-seed="))
+    ?.slice("--confirm-remote-dev-seed=".length);
+  if (!confirmed) return false;
+  try {
+    const database = new URL(uri.replace(/^mongodb(\+srv)?:/, "http:")).pathname.slice(1);
+    return database.length > 0 && database === confirmed;
+  } catch {
+    return false;
+  }
+}

@@ -21,7 +21,9 @@
     "test:coverage": "vitest run --coverage",
     "smoke": "node scripts/smoke.mjs",
     "seed:dev": "tsx src/scripts/seed.ts",
-    "migrate:catalog": "tsx src/scripts/migrate-catalog.ts"
+    "migrate:catalog": "tsx src/scripts/migrate-catalog.ts",
+    "db:sync-indexes": "node dist/scripts/sync-indexes.js",
+    "seed:dist": "node dist/scripts/seed.js"
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "3.1002.0",

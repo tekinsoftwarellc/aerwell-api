@@ -3,7 +3,7 @@ import { Environment, Location } from "../api/location/location.model.js";
 import { Role } from "../api/role/role.model.js";
 import { OrganizationSettings } from "../api/settings/settings.model.js";
 import { StaffMember } from "../api/staff/staff.model.js";
-import { seedDevelopmentData } from "./seed.service.js";
+import { seedDevelopmentData, seedTargetAllowed } from "./seed.service.js";
 it("seeds Aerwell defaults idempotently without reactivating or changing existing staff", async () => {
   const input = {
     organizationId: "org-seed",
@@ -52,4 +52,18 @@ it("puts the seeded Las Vegas clinic in the Las Vegas market once, never over a 
   expect((await Market.findOne({ slug: "las-vegas" }).lean())?.locationIds.map(String)).toEqual([
     String(other._id),
   ]);
+});
+
+it("W11: seeds localhost freely, a remote database only when its name is confirmed", () => {
+  const atlas = "mongodb+srv://u:p@cluster0.example.mongodb.net/aerwell-dev?retryWrites=true";
+  expect(seedTargetAllowed("mongodb://127.0.0.1:27017/aerwell", [])).toBe(true);
+  expect(seedTargetAllowed(atlas, [])).toBe(false);
+  expect(seedTargetAllowed(atlas, ["--confirm-remote-dev-seed=aerwell-prod"])).toBe(false);
+  expect(seedTargetAllowed(atlas, ["--confirm-remote-dev-seed="])).toBe(false);
+  expect(seedTargetAllowed(atlas, ["--confirm-remote-dev-seed=aerwell-dev"])).toBe(true);
+  expect(
+    seedTargetAllowed("mongodb+srv://u:p@cluster0.example.mongodb.net/", [
+      "--confirm-remote-dev-seed=",
+    ])
+  ).toBe(false);
 });

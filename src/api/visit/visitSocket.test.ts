@@ -433,3 +433,31 @@ it("a capture whose lease was taken over stops (review #9)", async () => {
   await CaptureLease.updateOne({ _id: v.id }, { $set: { captureId: "someone-else" } });
   expect((await client.next("error")).code).toBe("CAPTURE_LEASE_LOST");
 });
+
+it("W11: a failure while stopping still sends the code and closes the socket", async () => {
+  const { v, client } = await recording(new FakeTranscriber());
+  const { logger } = await import("../../common/utils/logger.js");
+  vi.spyOn(logger, "info").mockImplementation(() => {
+    throw new Error("log sink down");
+  });
+  emitVisitSignal(v.id, "consent_revoked");
+  expect((await client.next("error")).code).toBe("CONSENT_REVOKED");
+  expect((await client.closed).code).toBe(4403);
+  expect(await CaptureLease.countDocuments({ captureId: { $ne: null } })).toBe(0);
+});
+
+it("W11: shutdown flushes the provider's last lines to the database before it resolves", async () => {
+  const fake = new FakeTranscriber(
+    [[final(0, "spk_0", "Good morning.")]],
+    [final(1, "spk_1", "Last words before the deploy.")]
+  );
+  const { v, client } = await recording(fake);
+  client.ws.send(pcmFrame());
+  await client.next("transcript");
+  await server.drain();
+  // Resolved only after the tail result was saved: Mongo can now disconnect.
+  expect(await TranscriptSegment.countDocuments({ appointmentId: v.id })).toBe(2);
+  expect((await client.next("error")).code).toBe("SERVER_RESTARTING");
+  expect((await client.closed).code).toBe(1012);
+  expect(await CaptureLease.countDocuments({ captureId: { $ne: null } })).toBe(0);
+});

@@ -13,11 +13,19 @@ cd "$APP_DIR"
 npm ci --omit=dev --no-audit --no-fund
 # Recreate only this process so an old PM2 environment cannot override its .env.
 if pm2 describe "$APP_NAME" >/dev/null 2>&1; then pm2 delete "$APP_NAME"; fi
-# Never source a .env. dotenv loads the file inside this application's cwd.
-env -u NODE_ENV -u PORT -u HOST -u MONGODB_URI -u CORS_ORIGIN \
-  -u RATE_LIMIT_WINDOW_MS -u RATE_LIMIT_MAX -u ALFRED_AUTH_URL \
-  -u ALFRED_AUTH_JWKS_URL -u ALFRED_AUTH_CLIENT_ID -u ALFRED_AUTH_CLIENT_SECRET \
-  -u AERWELL_ORG_ID -u ALFRED_API_INTERNAL_URL \
-  pm2 start dist/index.js --name "$APP_NAME" --cwd "$APP_DIR" \
-  --restart-delay=3000 --max-restarts=5 --time
+# Never source a .env. dotenv loads the file inside this application's cwd, and a
+# value inherited from this shell would win over it (and be baked into pm2).
+# Every key of src/config/env.ts is listed (env.test.ts fails if one is missing).
+STRIP=(-u NODE_ENV -u PORT -u HOST -u MONGODB_URI -u CORS_ORIGIN
+  -u RATE_LIMIT_WINDOW_MS -u RATE_LIMIT_MAX -u ALFRED_API_INTERNAL_URL
+  -u ALFRED_AUTH_URL -u ALFRED_AUTH_JWKS_URL -u ALFRED_AUTH_CLIENT_ID
+  -u ALFRED_AUTH_CLIENT_SECRET -u STAFF_JWT_SECRET -u AWS_REGION -u AWS_S3_BUCKET
+  -u SES_FROM_EMAIL -u ADMIN_BASE_URL -u AERWELL_ORG_ID -u STRIPE_SECRET_KEY
+  -u STRIPE_PUBLISHABLE_KEY -u STRIPE_WEBHOOK_SECRET -u TRANSCRIBE_REGION
+  -u BEDROCK_REGION -u BEDROCK_MODEL_FAST -u BEDROCK_MODEL_SMART )
+# Indexes BEFORE traffic: webhook dedupe and booking idempotency rely on unique indexes.
+env "${STRIP[@]}" npm run db:sync-indexes
+# --kill-timeout: SIGINT drains live visit captures (flush + save) before exit.
+env "${STRIP[@]}" pm2 start dist/index.js --name "$APP_NAME" --cwd "$APP_DIR" \
+  --restart-delay=3000 --max-restarts=5 --kill-timeout=35000 --time
 pm2 save

@@ -95,8 +95,10 @@ export async function socketServer(options: VisitSocketOptions = {}) {
   return {
     port,
     server,
+    /** Graceful shutdown of the capture sockets (what index.ts runs on SIGTERM). */
+    drain: detach,
     close: async () => {
-      detach();
+      await detach();
       await new Promise<void>((resolve) => server.close(() => resolve()));
     },
   };

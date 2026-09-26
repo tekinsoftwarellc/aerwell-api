@@ -71,6 +71,8 @@ const CLOSE_CODES: Record<string, number> = {
   AUDIO_BEFORE_START: 4400,
   AUDIO_FRAME_INVALID: 4400,
   START_TIMEOUT: 4400,
+  // RFC 6455 "service restart": the deploy drained this capture; lines shown are saved.
+  SERVER_RESTARTING: 1012,
 };
 const message = z.discriminatedUnion("type", [
   z.object({ type: z.literal("start") }).strict(),
@@ -78,8 +80,15 @@ const message = z.discriminatedUnion("type", [
   z.object({ type: z.literal("reauth"), token: z.string().min(1).max(4096) }).strict(),
 ]);
 
-export function attachVisitSockets(server: Server, options: VisitSocketOptions = {}) {
+/** Returned by attachVisitSockets: drain every live capture (flush, save, close), then stop. */
+export type CloseVisitSockets = (timeoutMs?: number) => Promise<void>;
+
+export function attachVisitSockets(
+  server: Server,
+  options: VisitSocketOptions = {}
+): CloseVisitSockets {
   const settings = { ...DEFAULTS, ...options };
+  const connections = new Set<CaptureConnection>();
   const wss = new WebSocketServer({
     noServer: true,
     maxPayload: MAX_CHUNK_BYTES + 4096,
@@ -91,13 +100,21 @@ export function attachVisitSockets(server: Server, options: VisitSocketOptions =
     socket.on("error", () => socket.destroy());
     authorizeUpgrade(req).then(
       (context) =>
-        wss.handleUpgrade(req, socket, head, (ws) =>
-          new CaptureConnection(ws, context, settings).open()
-        ),
+        wss.handleUpgrade(req, socket, head, (ws) => {
+          const connection = new CaptureConnection(ws, context, settings);
+          connections.add(connection);
+          ws.on("close", () => connections.delete(connection));
+          connection.open();
+        }),
       (error: unknown) => refuseUpgrade(socket, error)
     );
   });
-  return () => {
+  return async (timeoutMs = 20_000) => {
+    // Flush while Mongo is still connected: the caller disconnects only after this.
+    await withTimeout(
+      Promise.allSettled([...connections].map((c) => c.shutdown())),
+      timeoutMs
+    ).catch(() => undefined);
     for (const client of wss.clients) client.terminate();
     wss.close();
   };
@@ -282,40 +299,67 @@ class CaptureConnection {
     }
   }
 
-  async #stop() {
+  /** Graceful server shutdown: a live capture flushes its last lines first. */
+  async shutdown() {
+    if (this.#phase === "recording") await this.#stop("SERVER_RESTARTING");
+    else await this.fail("SERVER_RESTARTING");
+  }
+
+  /** Flush and close; `reason` ends with that code instead of a user "stopped". */
+  async #stop(reason?: string) {
     if (this.#phase !== "recording" || !this.#live) return;
     const live = this.#live;
     this.#phase = "stopping";
     // A failure while we wait runs fail(), which moves the phase to done; every
     // step below re-checks it so a stop never writes over a failure.
     const stillStopping = () => this.#phase === "stopping";
+    let finished = false;
     try {
       await this.#writes;
       if (!stillStopping()) return;
       await withTimeout(live.finish(), this.settings.finishTimeoutMs);
       if (!stillStopping()) return;
       this.#phase = "done";
+      finished = true;
       await releaseLease(this.context.appointmentId, this.#captureId);
       await this.#audit("transcription_stopped");
-      this.#log("stopped");
+      this.#log(reason ?? "stopped");
+      if (reason) {
+        this.#send({ type: "error", code: reason }, true);
+        this.#close(CLOSE_CODES[reason] ?? 4500, reason);
+        return;
+      }
       this.#send({ type: "stopped", segments: this.#segments });
       this.#close(1000, "stopped");
     } catch (error) {
-      await this.fail(codeOf(error, "TRANSCRIPTION_FAILED"), providerErrorName(error));
+      // Once this stop owns "done" (a lease/audit write failed), fail() is a no-op: close here.
+      if (finished) {
+        logStoreFailure(error);
+        this.#close(4500, "STOP_FAILED");
+      } else await this.fail(codeOf(error, "TRANSCRIPTION_FAILED"), providerErrorName(error));
     }
   }
 
+  /**
+   * Every failure path ends here, and callers do not await it: whatever throws
+   * inside, the client still gets the code and the socket still closes.
+   */
   async fail(code: string, providerName?: string) {
     if (this.#phase === "done") return;
     const started = this.#phase === "recording" || this.#phase === "stopping";
     this.#phase = "done";
-    // Not awaited: abort drops queued audio at once; a stalled provider must not hold the close.
-    this.#live?.abort();
-    await releaseLease(this.context.appointmentId, this.#captureId).catch(logStoreFailure);
-    if (started) await this.#audit("transcription_interrupted").catch(logStoreFailure);
-    this.#log(code, providerName);
-    this.#send({ type: "error", code }, true);
-    this.#close(CLOSE_CODES[code] ?? 4500, code);
+    try {
+      // Not awaited: abort drops queued audio at once; a stalled provider must not hold the close.
+      this.#live?.abort();
+      await releaseLease(this.context.appointmentId, this.#captureId).catch(logStoreFailure);
+      if (started) await this.#audit("transcription_interrupted").catch(logStoreFailure);
+      this.#log(code, providerName);
+    } catch (error) {
+      logStoreFailure(error);
+    } finally {
+      this.#send({ type: "error", code }, true);
+      this.#close(CLOSE_CODES[code] ?? 4500, code);
+    }
   }
 
   async #heartbeat() {
@@ -408,6 +452,14 @@ class CaptureConnection {
   }
 
   #log(outcome: string, providerName?: string) {
+    try {
+      this.#info(outcome, providerName);
+    } catch (error) {
+      logStoreFailure(error);
+    }
+  }
+
+  #info(outcome: string, providerName?: string) {
     logger.info(
       {
         appointmentId: this.context.appointmentId,
@@ -451,8 +503,13 @@ function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
   });
   return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
 }
-const logStoreFailure = (error: unknown) =>
-  logger.error(
-    { errorType: error instanceof Error ? error.name : "Unknown" },
-    "Visit capture store update failed"
-  );
+const logStoreFailure = (error: unknown) => {
+  try {
+    logger.error(
+      { errorType: error instanceof Error ? error.name : "Unknown" },
+      "Visit capture store update failed"
+    );
+  } catch {
+    // A broken log sink must not turn a closed capture into an unhandled rejection.
+  }
+};

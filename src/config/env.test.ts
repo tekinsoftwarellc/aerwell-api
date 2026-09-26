@@ -1,6 +1,14 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { envSchema } from "./env.js";
+import { envObject, envSchema } from "./env.js";
 
+const production = {
+  NODE_ENV: "production",
+  MONGODB_URI: "mongodb://127.0.0.1/test",
+  CORS_ORIGIN: "https://admin.example.com",
+  STAFF_JWT_SECRET: "x".repeat(32),
+  AERWELL_ORG_ID: "org-prod",
+};
 describe("environment contract", () => {
   it("requires a Mongo URI", () => {
     const result = envSchema.safeParse({});
@@ -23,20 +31,32 @@ describe("environment contract", () => {
   });
   it("rejects production wildcard CORS including lists", () => {
     for (const origin of ["*", "https://admin.example.com,*"]) {
-      expect(
-        envSchema.safeParse({
-          NODE_ENV: "production",
-          MONGODB_URI: "mongodb://127.0.0.1/test",
-          CORS_ORIGIN: origin,
-        }).success
-      ).toBe(false);
+      expect(envSchema.safeParse({ ...production, CORS_ORIGIN: origin }).success).toBe(false);
     }
     expect(
-      envSchema.safeParse({
-        NODE_ENV: "production",
-        MONGODB_URI: "mongodb://127.0.0.1/test",
-        CORS_ORIGIN: "https://admin.example.com",
-      }).success
+      envSchema.safeParse({ ...production, CORS_ORIGIN: "https://admin.example.com" }).success
     ).toBe(true);
+  });
+  it("W11: production refuses to boot without staff sign-in keys (no silent 503 login)", () => {
+    for (const key of ["STAFF_JWT_SECRET", "AERWELL_ORG_ID"] as const) {
+      const { [key]: _omitted, ...rest } = production;
+      const result = envSchema.safeParse(rest);
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.error.issues.map((i) => i.path[0])).toContain(key);
+    }
+    expect(envSchema.safeParse(production).success).toBe(true);
+  });
+});
+
+describe("W11: deploy start script", () => {
+  const script = readFileSync(new URL("../../scripts/start_server.sh", import.meta.url), "utf8");
+  it("strips every environment key before pm2 start, so pm2 cannot bake a stale value", () => {
+    const keys = Object.keys(envObject.shape);
+    expect(keys.filter((key) => !new RegExp(`-u ${key}\\s`).test(script))).toEqual([]);
+  });
+  it("syncs indexes before traffic and gives pm2 time to drain live captures", () => {
+    expect(script.indexOf("npm run db:sync-indexes")).toBeGreaterThan(0);
+    expect(script.indexOf("npm run db:sync-indexes")).toBeLessThan(script.indexOf("pm2 start"));
+    expect(script).toMatch(/--kill-timeout=3\d{4}/);
   });
 });

@@ -341,6 +341,7 @@ it("W11: two members racing for one provider slot: only one writer ever attempts
     const query = exists(filter);
     const then = query.then.bind(query);
     return Object.assign(query, {
+      // biome-ignore lint/suspicious/noThenProperty: holds both writers after the real query resolves.
       then: (ok: (v: unknown) => unknown, bad?: (e: unknown) => unknown) =>
         then(async (value) => {
           readers += 1;
@@ -352,7 +353,10 @@ it("W11: two members racing for one provider slot: only one writer ever attempts
   }) as typeof Appointment.exists);
   const inserts: string[] = [];
   const create = Appointment.create.bind(Appointment);
-  vi.spyOn(Appointment, "create").mockImplementation(((docs: { memberId: unknown }[], o: object) => {
+  vi.spyOn(Appointment, "create").mockImplementation(((
+    docs: { memberId: unknown }[],
+    o: object
+  ) => {
     inserts.push(String(docs[0]?.memberId));
     return create(docs, o);
   }) as unknown as typeof Appointment.create);
