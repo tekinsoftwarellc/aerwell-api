@@ -7,6 +7,7 @@ import {
   NotFoundError,
 } from "../../common/errors/AppError.js";
 import { Market } from "../catalog/catalog.model.js";
+import { assertRetailFitsPlans } from "../catalog/catalog.service.js";
 import {
   assertExpectedVersion,
   inCatalogTransaction,
@@ -224,6 +225,8 @@ export async function patchService(req: Request) {
   assertExpectedVersion(doc, expectedVersion);
   const input = serviceCreateSchema.parse({ ...editable(doc), ...patch });
   await validateReferences(req, input, String(doc._id));
+  if ((input.basePriceCents === null) !== (doc.basePriceCents == null))
+    await assertRetailFitsPlans(req.staff?.organizationId ?? "", doc, input.basePriceCents);
   const { imageUploadId, removeImage, slug, ...data } = input;
   doc.set({ ...data, ...(await applyImage(req, input)) });
   await saveVersioned(req, "service", doc, "updated");

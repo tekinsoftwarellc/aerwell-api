@@ -89,7 +89,18 @@ export async function patchMarket(req: Request) {
 
 // Membership plans ---------------------------------------------------------
 type BenefitInput = PlanInput["benefits"][number];
-function benefitRule(benefit: BenefitInput, retail: number | null | undefined, baseline: boolean) {
+type ServiceFacts = { basePriceCents?: number | null; owner?: string | null };
+type PlanFacts = { isBaseline: boolean; restrictedOwners: string[] };
+function benefitRule(benefit: BenefitInput, service: ServiceFacts, plan: PlanFacts) {
+  const retail = service.basePriceCents;
+  const baseline = plan.isBaseline;
+  // The baseline is every member (Free/DTC): it may never open a restricted owner.
+  if (
+    baseline &&
+    benefit.access !== "ineligible" &&
+    plan.restrictedOwners.includes(String(service.owner))
+  )
+    return "The baseline entitlement cannot grant services of a restricted owner";
   if (benefit.access === "exclusive" && retail != null)
     return "Exclusive access is only for services without a retail price";
   if (benefit.pricing.mode === "discount" && retail == null)
@@ -104,12 +115,12 @@ async function validatePlan(req: Request, input: PlanInput, selfId?: string) {
     _id: { $in: input.benefits.map((b) => b.serviceId) },
     organizationId,
     deletedAt: null,
-  }).select("basePriceCents");
+  }).select("basePriceCents owner");
   if (services.length !== input.benefits.length)
     throw new BadRequestError("Every benefit must reference an active catalog service");
   for (const benefit of input.benefits) {
     const service = services.find((s) => String(s._id) === benefit.serviceId);
-    const problem = benefitRule(benefit, service?.basePriceCents, input.isBaseline);
+    const problem = benefitRule(benefit, service ?? {}, input);
     if (problem) throw new BadRequestError(problem);
   }
   if (
@@ -171,10 +182,48 @@ export async function patchPlan(req: Request) {
   if (!doc.slug) throw new BadRequestError("Legacy tier plans are read-only; create a new plan");
   assertExpectedVersion(doc, expectedVersion);
   const merged = { ...editablePlan(doc), ...patch, slug: doc.slug };
+  if (
+    doc.isBaseline &&
+    doc.status === "active" &&
+    !(merged.isBaseline && merged.status === "active")
+  )
+    throw new ConflictError(
+      "Every organization needs an active baseline entitlement; edit it instead",
+      undefined,
+      "BASELINE_REQUIRED"
+    );
   await validatePlan(req, merged, String(doc._id));
   doc.set({ ...withBenefitIds(patch), effectiveFrom: new Date() });
   await saveVersioned(req, "membership_plan", doc, "updated");
   return serialize(doc);
+}
+
+/** A service retail change must keep every plan benefit on it valid. */
+export async function assertRetailFitsPlans(
+  organizationId: string,
+  service: { _id: unknown; owner?: string | null },
+  retail: number | null
+) {
+  const plans = await MembershipPlan.find({
+    organizationId,
+    slug: { $type: "string" },
+    "benefits.serviceId": service._id,
+  });
+  const broken = plans.filter((plan) =>
+    plan.benefits.some(
+      (b) =>
+        String(b.serviceId) === String(service._id) &&
+        benefitRule(
+          b as unknown as BenefitInput,
+          { basePriceCents: retail, owner: service.owner },
+          plan
+        )
+    )
+  );
+  if (broken.length)
+    throw new BadRequestError(
+      `This retail change conflicts with benefits in ${broken.map((p) => p.name).join(", ")}. Update those plans first.`
+    );
 }
 
 // Delivery modifiers -------------------------------------------------------

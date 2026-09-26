@@ -386,6 +386,34 @@ describe("membership plan validation", () => {
       },
     ],
     ["fractional plan price", { priceCents: 19.99 }],
+    [
+      "an allowance priced as included",
+      {
+        benefits: [
+          {
+            serviceId: "dexa-scan",
+            access: "eligible",
+            includedQuantity: 2,
+            period: { unit: "year" },
+            pricing: { mode: "included" },
+          },
+        ],
+      },
+    ],
+    [
+      "an allowance with a 100% discount",
+      {
+        benefits: [
+          {
+            serviceId: "dexa-scan",
+            access: "eligible",
+            includedQuantity: 2,
+            period: { unit: "year" },
+            pricing: { mode: "discount", discountBps: 10000 },
+          },
+        ],
+      },
+    ],
     ["an unknown field", { tiers: [] }],
   ])("rejects %s", async (_label, patch: Record<string, unknown>) => {
     const body = plan(patch);
@@ -584,5 +612,41 @@ describe("concurrent configuration writes", () => {
     ).rejects.toMatchObject({ statusCode: 409, code: "VERSION_CONFLICT" });
     expect((await Market.findById(ids["las-vegas"]))?.name).toBe("Las Vegas A");
     expect(await CatalogRevision.countDocuments({ entityId: ids["las-vegas"] })).toBe(2);
+  });
+});
+
+describe("configuration guards from review", () => {
+  it("keeps exactly one active baseline and never lets it grant a restricted owner", async () => {
+    const free = `/membership-plans/${ids["alfred-free"]}`;
+    for (const body of [{ status: "archived" }, { isBaseline: false }]) {
+      const r = await send("patch", free, body);
+      expect(r.status).toBe(409);
+      expect(r.body.code).toBe("BASELINE_REQUIRED");
+    }
+    const everhaus = {
+      serviceId: ids["red-light-therapy"],
+      access: "eligible",
+      pricing: { mode: "retail" },
+    };
+    expect((await send("patch", free, { benefits: [everhaus] })).status).toBe(400);
+    expect(
+      (await send("patch", free, { benefits: [{ ...everhaus, access: "ineligible" }] })).status
+    ).toBe(200);
+    const aerwell = {
+      serviceId: ids["dexa-scan"],
+      access: "eligible",
+      pricing: { mode: "discount", discountBps: 500 },
+    };
+    expect((await send("patch", free, { benefits: [aerwell] })).status).toBe(200);
+  });
+  it("refuses a retail change that would break a plan benefit", async () => {
+    const patch = (slug: string, body: Record<string, unknown>) =>
+      send("patch", `/services/${ids[slug]}`, body);
+    const discounted = await patch("red-light-therapy", { basePriceCents: null });
+    expect(discounted.status).toBe(400);
+    expect(discounted.body.message).toMatch(/Aerwell (Essential|Continuum)/);
+    expect((await patch("sanctuary", { basePriceCents: 5000 })).status).toBe(400);
+    expect((await patch("red-light-therapy", { basePriceCents: 7000 })).status).toBe(200);
+    expect((await patch("dexa-scan", { basePriceCents: null })).status).toBe(200);
   });
 });

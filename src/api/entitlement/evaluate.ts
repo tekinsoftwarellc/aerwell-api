@@ -46,11 +46,12 @@ function activeCandidates(catalog: CatalogSnapshot, req: EntitlementRequest): Ca
     const plan = catalog.plans.find((p) => p.id === membership.planId && p.status === "active");
     return plan && isCurrent(membership, req.at) ? [{ membership, plan }] : [];
   });
-  const baseline = catalog.plans.filter((p) => p.isBaseline && p.status === "active");
-  const implicit = baseline.length
-    ? baseline.map((plan) => ({ membership: null, plan }))
-    : [{ membership: null, plan: null }];
-  return [...held, ...implicit];
+  // No active baseline = no implicit entitlement: fail closed rather than open
+  // retail (Free/DTC must never reach Everhaus checkout by misconfiguration).
+  const baseline = catalog.plans
+    .filter((p) => p.isBaseline && p.status === "active")
+    .map((plan) => ({ membership: null, plan }));
+  return [...held, ...baseline];
 }
 
 export function clinicianChatAllowed(
@@ -64,10 +65,13 @@ export function clinicianChatAllowed(
   } as EntitlementRequest).some((c) => c.plan?.clinicianChat === true);
 }
 
-function offeredIn(service: ServiceConfig, catalog: CatalogSnapshot, marketId: string | null) {
+/** null = member outside every configured market; unknown or inactive ids offer nothing. */
+function marketUsable(catalog: CatalogSnapshot, marketId: string | null) {
+  return marketId === null || !!catalog.markets.find((m) => m.id === marketId)?.active;
+}
+function offeredIn(service: ServiceConfig, marketId: string | null) {
   if (service.marketScope === "all") return true;
-  const market = catalog.markets.find((m) => m.id === marketId);
-  return !!market?.active && service.marketIds.includes(market.id);
+  return marketId !== null && service.marketIds.includes(marketId);
 }
 
 function resolveModifier(
@@ -161,7 +165,11 @@ function evaluateCandidate(
       allowance,
     };
   if (allowance && benefit?.exhaustion === "deny") return fail("ALLOWANCE_EXHAUSTED", allowance);
-  const priced = priceFromPricing(service, benefit);
+  // Defence in depth (writes reject it): a spent allowance never prices at $0.
+  const priced =
+    allowance && benefit?.pricing.mode === "included"
+      ? priceFromPricing(service, undefined)
+      : priceFromPricing(service, benefit);
   if (!priced) return fail("NOT_PURCHASABLE");
   return { selection, ok: true, denialReason: null, ...priced, allowance };
 }
@@ -176,11 +184,17 @@ function episodeOutcome(
   if (!episode || episode.fulfilledServiceIds.includes(service.id)) return null;
   const bundle = catalog.services.find((s) => s.id === episode.bundleServiceId);
   const holder = candidates.find((c) => c.membership?.id === episode.membershipId);
-  if (!(bundle?.bundleComponentIds.includes(service.id) && holder)) return null;
+  const benefit = holder?.plan?.benefits.find((b) => b.id === episode.benefitId);
+  if (
+    !(bundle?.bundleComponentIds.includes(service.id) && benefit) ||
+    benefit.serviceId !== bundle.id ||
+    benefit.access === "ineligible"
+  )
+    return null;
   return {
     selection: {
       membershipId: episode.membershipId,
-      planId: holder.plan?.id ?? null,
+      planId: holder?.plan?.id ?? null,
       benefitId: episode.benefitId,
     },
     ok: true,
@@ -191,23 +205,29 @@ function episodeOutcome(
   };
 }
 
-// Proposal (not client-approved): cheapest price wins; on a tie prefer not
-// consuming a unit, then (when both consume) the pool that renews first, then a
-// held membership over the baseline (keeps usage provenance), then stable ids.
-function compareOutcomes(a: CandidateOutcome, b: CandidateOutcome): number {
-  const bothConsume = a.allowance?.consumes === 1 && b.allowance?.consumes === 1;
-  return (
-    (a.priceCents ?? 0) - (b.priceCents ?? 0) ||
-    (a.allowance?.consumes ?? 0) - (b.allowance?.consumes ?? 0) ||
-    (bothConsume ? Number(a.allowance?.periodEnd) - Number(b.allowance?.periodEnd) : 0) ||
-    Number(a.selection.membershipId === null) - Number(b.selection.membershipId === null) ||
-    String(a.selection.membershipId ?? a.selection.planId).localeCompare(
-      String(b.selection.membershipId ?? b.selection.planId)
-    )
-  );
-}
-const DENIAL_PRIORITY: DenialReason[] = ["ALLOWANCE_EXHAUSTED", "NOT_PURCHASABLE", "NOT_ELIGIBLE"];
 const FREE_DECISIONS = new Set(["allowance", "included", "episode_component"]);
+const feeFor = (modifier: DeliveryModifierConfig | null, outcome: CandidateOutcome) =>
+  !modifier || (!modifier.chargeWhenIncluded && FREE_DECISIONS.has(String(outcome.decision)))
+    ? 0
+    : modifier.amountCents;
+// Proposal (not client-approved): lowest final amount (price + fee) wins; on a
+// tie prefer not consuming a unit, then (when both consume) the pool that renews
+// first, then a held membership over the baseline (provenance), then stable ids.
+const compareOutcomes =
+  (modifier: DeliveryModifierConfig | null) =>
+  (a: CandidateOutcome, b: CandidateOutcome): number => {
+    const bothConsume = a.allowance?.consumes === 1 && b.allowance?.consumes === 1;
+    return (
+      (a.priceCents ?? 0) + feeFor(modifier, a) - ((b.priceCents ?? 0) + feeFor(modifier, b)) ||
+      (a.allowance?.consumes ?? 0) - (b.allowance?.consumes ?? 0) ||
+      (bothConsume ? Number(a.allowance?.periodEnd) - Number(b.allowance?.periodEnd) : 0) ||
+      Number(a.selection.membershipId === null) - Number(b.selection.membershipId === null) ||
+      String(a.selection.membershipId ?? a.selection.planId).localeCompare(
+        String(b.selection.membershipId ?? b.selection.planId)
+      )
+    );
+  };
+const DENIAL_PRIORITY: DenialReason[] = ["ALLOWANCE_EXHAUSTED", "NOT_PURCHASABLE", "NOT_ELIGIBLE"];
 
 function ruleVersion(
   service: ServiceConfig,
@@ -260,7 +280,10 @@ export function evaluateEntitlement(
   );
   if (service.status !== "active" || components.some((c) => c?.status !== "active"))
     return deny("SERVICE_INACTIVE", version);
-  if (![service, ...components].every((s) => s && offeredIn(s, catalog, req.marketId)))
+  if (
+    !marketUsable(catalog, req.marketId) ||
+    ![service, ...components].every((s) => s && offeredIn(s, req.marketId))
+  )
     return deny("MARKET_UNAVAILABLE", version);
   const modifier = resolveModifier(catalog, req, service);
   if (modifier === "unavailable") return deny("DELIVERY_UNAVAILABLE", version);
@@ -269,15 +292,14 @@ export function evaluateEntitlement(
   const episode = episodeOutcome(catalog, service, candidates, req);
   const valid = [...(episode ? [episode] : []), ...outcomes]
     .filter((o) => o.ok)
-    .sort(compareOutcomes);
+    .sort(compareOutcomes(modifier));
   const best = valid[0];
   if (!best) {
     const reason = DENIAL_PRIORITY.find((r) => outcomes.some((o) => o.denialReason === r));
     return deny(reason ?? "NOT_ELIGIBLE", version, outcomes);
   }
-  const waived = !modifier?.chargeWhenIncluded && FREE_DECISIONS.has(String(best.decision));
   const fees =
-    modifier && !waived
+    modifier && feeFor(modifier, best) > 0
       ? [{ modifierId: modifier.id, key: modifier.key, amountCents: modifier.amountCents }]
       : [];
   const feesCents = fees.reduce((sum, f) => sum + f.amountCents, 0);

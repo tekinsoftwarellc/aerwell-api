@@ -72,6 +72,16 @@ export const benefitSchema = z
       });
     if (v.includedQuantity === 0 && v.period)
       c.addIssue({ code: "custom", path: ["period"], message: "Only allowances have a period" });
+    const free =
+      v.pricing.mode === "included" ||
+      (v.pricing.mode === "discount" && v.pricing.discountBps === BASIS_POINTS_PER_WHOLE);
+    if (v.includedQuantity > 0 && free)
+      c.addIssue({
+        code: "custom",
+        path: ["pricing"],
+        message:
+          "An allowance must be followed by a charge; use Included without a quantity for unlimited",
+      });
     if (v.access === "ineligible" && (v.includedQuantity > 0 || v.pricing.mode !== "retail"))
       c.addIssue({
         code: "custom",

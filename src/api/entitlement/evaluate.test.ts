@@ -6,6 +6,7 @@ import {
   seedServices,
 } from "../catalog/catalog.seed-data.js";
 import type {
+  BenefitConfig,
   CatalogSnapshot,
   EntitlementRequest,
   MembershipHolding,
@@ -470,10 +471,6 @@ describe("availability, delivery and state guards", () => {
   });
   it("refuses member-only services without a retail price to non-holders", () => {
     expect(ask("assessment-clinician-review", []).denialReason).toBe("NOT_PURCHASABLE");
-    const open = seedSnapshot();
-    open.plans = open.plans.filter((p) => !p.isBaseline);
-    expect(ask("sanctuary", [], {}, open).denialReason).toBe("NOT_PURCHASABLE");
-    expect(ask("dexa-scan", [], {}, open)).toMatchObject({ decision: "retail", finalCents: 17500 });
     const noRetail = seedSnapshot();
     noRetail.services = noRetail.services.map((s) =>
       s.id === "red-light-therapy" ? { ...s, retailCents: null } : s
@@ -577,5 +574,119 @@ describe("money and periods", () => {
     expect(
       clinicianChatAllowed(plans, [hold("aerwell-essential", START, { status: "cancelled" })], AT)
     ).toBe(false);
+  });
+});
+
+describe("review regressions", () => {
+  const withBenefit = (planId: string, serviceId: string, patch: Partial<BenefitConfig>) => {
+    const catalog = seedSnapshot();
+    catalog.plans = catalog.plans.map((p) =>
+      p.id === planId
+        ? {
+            ...p,
+            benefits: [
+              ...p.benefits.filter((b) => b.serviceId !== serviceId),
+              {
+                id: serviceId,
+                serviceId,
+                access: "eligible",
+                includedQuantity: 0,
+                period: null,
+                exhaustion: "paid",
+                pricing: { mode: "retail" },
+                ...patch,
+              },
+            ],
+          }
+        : p
+    );
+    return catalog;
+  };
+  it("fails closed for non-members when no baseline plan is active", () => {
+    for (const status of ["archived", "missing"]) {
+      const catalog = seedSnapshot();
+      catalog.plans =
+        status === "missing"
+          ? catalog.plans.filter((p) => !p.isBaseline)
+          : catalog.plans.map((p) => (p.isBaseline ? { ...p, status: "archived" } : p));
+      for (const service of ["red-light-therapy", "dexa-scan", "sanctuary"])
+        expect(ask(service, [], {}, catalog)).toMatchObject({
+          bookable: false,
+          denialReason: "NOT_ELIGIBLE",
+        });
+      expect(ask("red-light-therapy", ESSENTIAL, {}, catalog).finalCents).toBe(5400);
+    }
+  });
+  it("an exhausted allowance never falls through to free pricing", () => {
+    const catalog = withBenefit("aerwell-essential", "clinician-telehealth-visit", {
+      includedQuantity: 2,
+      period: { unit: "year", anchor: "anniversary", rollover: "none" },
+      pricing: { mode: "included" },
+    });
+    const usage = { "m-aerwell-essential:clinician-telehealth-visit": 50 };
+    expect(ask("clinician-telehealth-visit", ESSENTIAL, { usage }, catalog)).toMatchObject({
+      decision: "retail",
+      finalCents: 25000,
+    });
+  });
+  it("ignores an episode whose benefit is not the holder's benefit for that bundle", () => {
+    const episode = {
+      id: "ep",
+      bundleServiceId: "advanced-assessment",
+      membershipId: "m-aerwell-essential",
+      benefitId: "advanced-assessment",
+      fulfilledServiceIds: [] as string[],
+    };
+    expect(ask("dexa-scan", ESSENTIAL, { episode }).decision).toBe("episode_component");
+    for (const benefitId of ["anything", "clinician-telehealth-visit"])
+      expect(ask("dexa-scan", ESSENTIAL, { episode: { ...episode, benefitId } }).decision).toBe(
+        "retail"
+      );
+    const cancelled = { memberships: [hold("aerwell-essential", START, { status: "cancelled" })] };
+    expect(ask("dexa-scan", [], { ...cancelled, episode }).decision).toBe("retail");
+  });
+  it("an unknown or inactive market makes every service unavailable; no market keeps all-market services", () => {
+    const catalog = seedSnapshot();
+    catalog.markets = catalog.markets.map((m) =>
+      m.id === "las-vegas" ? { ...m, active: false } : m
+    );
+    const mobile = { deliveryMethod: "mobile_phlebotomy" };
+    expect(ask("comprehensive-blood-panel", [], mobile, catalog).denialReason).toBe(
+      "MARKET_UNAVAILABLE"
+    );
+    expect(ask("clinician-telehealth-visit", [], { marketId: "nowhere" }).denialReason).toBe(
+      "MARKET_UNAVAILABLE"
+    );
+    expect(ask("clinician-telehealth-visit", [], { marketId: null }).finalCents).toBe(25000);
+  });
+  it("chooses the candidate with the lowest final amount including fees", () => {
+    const catalog = withBenefit("everhaus-member", "advanced-assessment", {
+      pricing: { mode: "custom", customPriceCents: 0 },
+    });
+    catalog.modifiers = catalog.modifiers.map((m) => ({ ...m, chargeWhenIncluded: false }));
+    const q = ask(
+      "advanced-assessment",
+      [...ESSENTIAL, ...EVERHAUS],
+      { deliveryMethod: "mobile_phlebotomy" },
+      catalog
+    );
+    expect(q).toMatchObject({ decision: "allowance", finalCents: 0 });
+  });
+  it("explains denials by priority: exhausted > not purchasable > not eligible", () => {
+    const exhausted = withBenefit("aerwell-essential", "assessment-clinician-review", {
+      includedQuantity: 1,
+      period: { unit: "year", anchor: "anniversary", rollover: "none" },
+      exhaustion: "deny",
+    });
+    const usage = { "m-aerwell-essential:assessment-clinician-review": 1 };
+    expect(ask("assessment-clinician-review", ESSENTIAL, { usage }, exhausted).denialReason).toBe(
+      "ALLOWANCE_EXHAUSTED"
+    );
+    const ineligible = withBenefit("aerwell-essential", "assessment-clinician-review", {
+      access: "ineligible",
+    });
+    expect(ask("assessment-clinician-review", ESSENTIAL, {}, ineligible).denialReason).toBe(
+      "NOT_PURCHASABLE"
+    );
   });
 });
