@@ -22,11 +22,36 @@ const WEEKS = 5;
 const AVERAGE_WEEKS = 26; // ponytail: fixed 6-month window; add ?range=3mo|6mo|1yr with the range control
 const UPCOMING_LIMIT = 3;
 const oneDecimal = (n: number) => Math.round(n * 10) / 10;
+type DayStart = (offset: number) => Date;
 
-function visitStats(starts: Date[], total: number, today: string, tz: string) {
-  const midnight = (offset: number) => localInstant(addDays(today, offset), "00:00", tz);
-  const between = (from: number, to: number) =>
-    starts.filter((s) => s >= midnight(from) && s < midnight(to)).length;
+/**
+ * Start of the local day `offset` days from today, memoized per request. Zones
+ * that change clocks at midnight (America/Santiago) have no 00:00 that day; the
+ * day then starts at 01:00. ponytail: an ambiguous fall-back midnight also takes
+ * 01:00 (an hour late); use the earliest instant if a zone ever needs it.
+ */
+function dayStarts(today: string, tz: string): DayStart {
+  const cache = new Map<number, Date>();
+  return (offset) => {
+    const hit = cache.get(offset);
+    if (hit) return hit;
+    const date = addDays(today, offset);
+    let start: Date;
+    try {
+      start = localInstant(date, "00:00", tz);
+    } catch {
+      start = localInstant(date, "01:00", tz);
+    }
+    cache.set(offset, start);
+    return start;
+  };
+}
+
+function visitStats(starts: Date[], total: number, midnight: DayStart) {
+  const between = (from: number, to: number) => {
+    const [low, high] = [midnight(from), midnight(to)];
+    return starts.filter((s) => s >= low && s < high).length;
+  };
   const last30Days = between(-29, 1);
   const previous30Days = between(-59, -29);
   const weekly = Array.from({ length: WEEKS }, (_, i) => {
@@ -62,7 +87,7 @@ export async function appointmentOverview(req: Request, member: MemberData & { _
   const tz = await organizationTimeZone(member.organizationId);
   const now = new Date();
   const today = todayIn(tz, now);
-  const midnight = (offset: number) => localInstant(addDays(today, offset), "00:00", tz);
+  const midnight = dayStarts(today, tz);
   const visit = { ...base, status: { $in: VISIT_STATUSES } };
   const [recent, total, todayCount, upcoming] = await Promise.all([
     Appointment.find({
@@ -88,8 +113,7 @@ export async function appointmentOverview(req: Request, member: MemberData & { _
     visits: visitStats(
       recent.map((r) => r.startAt),
       total,
-      today,
-      tz
+      midnight
     ),
     todayAppointment: first && new Date(first.startAt) < midnight(1) ? first : null,
     appointments: { todayCount, upcoming: items },

@@ -5,6 +5,7 @@ import { as } from "../../test/scheduleFixture.js";
 import { staffFixture } from "../../test/staffFixture.js";
 import { Member } from "../member/member.model.js";
 import { Service } from "../service/service.model.js";
+import { OrganizationSettings } from "../settings/settings.model.js";
 import { StaffMember } from "../staff/staff.model.js";
 import { Appointment, type AppointmentStatus } from "./appointment.model.js";
 
@@ -146,4 +147,20 @@ it("needs APPOINTMENTS view and applies its own scope to every appointment block
   );
   const none = await overview(w, ava._id, w.provider.accessToken);
   expect(none).toMatchObject({ visits: null, appointments: null, todayAppointment: null });
+});
+
+it("survives an org zone whose clocks skip local midnight (review MEDIUM 1)", async () => {
+  // America/Santiago springs forward 2026-09-06 00:00 -> 01:00, so that day has no midnight.
+  pinClock(new Date("2026-09-06T15:00:00.000Z"));
+  const w = await bookingWorld();
+  await OrganizationSettings.updateOne(
+    { organizationId: ORG },
+    { $set: { timeZone: "America/Santiago" } },
+    { upsert: true }
+  );
+  const ava = await w.member();
+  await row(w, ava._id, "2026-09-06", "10:00", "completed");
+  const data = await overview(w, ava._id);
+  expect(data.visits).toMatchObject({ last30Days: 1, total: 1 });
+  expect(data.appointments.todayCount).toBe(1);
 });
