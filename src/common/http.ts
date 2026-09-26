@@ -10,6 +10,9 @@ import { validate } from "./middleware/validate.js";
 import { ServiceResponse } from "./models/serviceResponse.js";
 import { asyncHandler } from "./utils/asyncHandler.js";
 export const objectId = z.string().regex(/^[a-f\d]{24}$/i, "Invalid identifier");
+/** Query array that also accepts a single `?key=value` occurrence. */
+export const queryArray = (item: ZodTypeAny) =>
+  z.preprocess((v) => (typeof v === "string" ? [v] : v), z.array(item).max(30).optional());
 export const idParams = z.object({ id: objectId }).strict();
 export const empty = z.object({}).strict();
 export const nonEmptyPatch = <T extends ZodTypeAny>(schema: T) =>

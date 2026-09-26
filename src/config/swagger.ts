@@ -1,4 +1,5 @@
 import { authPaths } from "../api/auth/auth.openapi.js";
+import { schedulePaths } from "../api/schedule/schedule.openapi.js";
 import { settingsPaths } from "../api/settings/settings.openapi.js";
 const envelope = (data: Record<string, unknown>) => ({
   type: "object",
@@ -21,6 +22,7 @@ export const swaggerSpec = {
   paths: {
     ...authPaths,
     ...settingsPaths,
+    ...schedulePaths,
     "/api/v1/health": {
       get: {
         summary: "Process and Mongo health",

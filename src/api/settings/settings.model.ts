@@ -2,6 +2,7 @@ import { Schema, model } from "mongoose";
 const schema = new Schema(
   {
     organizationId: { type: String, required: true, unique: true },
+    scheduleRevision: { type: Number, default: 0 },
     staffAccessRevision: { type: Number, default: 0 },
     name: { type: String, default: "Aerwell" },
     logoUrl: String,
