@@ -89,7 +89,7 @@ export async function directory(req: Request) {
           .select("label kind")
           .lean()),
       ],
-      dutyStatus: onDuty.has(String(row._id)) ? "on_duty" : "off",
+      dutyStatus: row.accountStatus === "active" && onDuty.has(String(row._id)) ? "on_duty" : "off",
     }))
   );
   await audit(req, "viewed", "StaffDirectory", staff.organizationId);

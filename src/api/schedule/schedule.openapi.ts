@@ -17,7 +17,7 @@ const shiftFields = {
   endTime: { ...timeSchema, description: "Same-day end, after startTime" },
   positionRoleId: idSchema,
   locationId: idSchema,
-  stationName: { type: "string", maxLength: 100, example: "Front Desk" },
+  stationName: { type: "string", maxLength: 100, nullable: true, example: "Front Desk" },
 };
 const shiftBody = {
   type: "object",
@@ -97,7 +97,10 @@ const responses = {
     description:
       "SHIFT_OVERLAP, SHIFT_DURING_PTO, SHIFT_STAFF_INACTIVE, PTO_OVERLAP, PTO_BALANCE_EXCEEDED or PTO_ALREADY_DECIDED",
   },
-  422: { description: "INVALID_LOCAL_TIME: missing or ambiguous local time during a clock change" },
+  422: {
+    description:
+      "INVALID_LOCAL_TIME (missing/ambiguous local time at a clock change) or PTO_IN_PAST",
+  },
 };
 function operation(
   summary: string,

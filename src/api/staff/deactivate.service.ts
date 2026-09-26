@@ -6,6 +6,7 @@ import { emailConfigured, sendEmail } from "../../common/services/email.service.
 import { AuditEvent } from "../audit/audit.js";
 import { StaffSession } from "../auth/auth.model.js";
 import { Invite } from "../invite/invite.model.js";
+import { releaseScheduleFor } from "../schedule/lifecycle.js";
 import { OrganizationSettings } from "../settings/settings.model.js";
 import { settingsFor } from "../settings/settings.service.js";
 import { StaffMember } from "./staff.model.js";
@@ -71,15 +72,21 @@ async function applyDeactivation(req: Request, ids: string[], now: Date, session
     { $set: { status: "revoked" } },
     { session }
   );
+  const released = await releaseScheduleFor(by.organizationId, ids, now, session);
+  const entry = (action: string, targetType: string, targetId: string) => ({
+    organizationId: by.organizationId,
+    actorId: String(by._id),
+    action,
+    targetType,
+    targetId,
+    requestId: req.requestId,
+  });
   const events = await AuditEvent.create(
-    ids.map((id) => ({
-      organizationId: by.organizationId,
-      actorId: String(by._id),
-      action: "deactivated",
-      targetType: "StaffMember",
-      targetId: id,
-      requestId: req.requestId,
-    })),
+    [
+      ...ids.map((id) => entry("deactivated", "StaffMember", id)),
+      ...released.shiftIds.map((id) => entry("unassigned_for_deactivation", "Shift", id)),
+      ...released.ptoIds.map((id) => entry("denied_for_deactivation", "PtoRequest", id)),
+    ],
     { session, ordered: true }
   );
   return String(events[0]?._id);

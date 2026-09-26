@@ -1,6 +1,11 @@
 import type { Request } from "express";
 import type { ClientSession } from "mongoose";
-import { ConflictError, ForbiddenError, NotFoundError } from "../../common/errors/AppError.js";
+import {
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+  ValidationError,
+} from "../../common/errors/AppError.js";
 import { actor } from "../../common/http.js";
 import { audit } from "../audit/audit.js";
 import { OrganizationSettings } from "../settings/settings.model.js";
@@ -22,10 +27,9 @@ export async function balance(
   year: number,
   session: ClientSession | null = null
 ) {
-  const [settings, row] = await Promise.all([
-    OrganizationSettings.findOne({ organizationId }).session(session).lean(),
-    PtoBalance.findOne({ organizationId, staffId, year }).session(session).lean(),
-  ]);
+  // Sequential: parallel operations on one transaction session are unsupported.
+  const settings = await OrganizationSettings.findOne({ organizationId }).session(session).lean();
+  const row = await PtoBalance.findOne({ organizationId, staffId, year }).session(session).lean();
   const allowanceDays = row?.allowanceDays ?? settings?.ptoAllowanceDays ?? DEFAULT_ALLOWANCE_DAYS;
   const usedDays = row?.usedDays ?? 0;
   return { year, allowanceDays, usedDays, remainingDays: allowanceDays - usedDays };
@@ -69,6 +73,8 @@ const shiftsDuring = (row: PtoDocument, session: ClientSession | null = null) =>
     organizationId: row.organizationId,
     staffId: row.staffId,
     date: { $gte: row.startDate, $lte: row.endDate },
+    // Worked or running shifts are history; only shifts yet to start are released.
+    startAt: { $gt: new Date() },
   }).session(session);
 function balancesFor(row: PtoDocument) {
   return Promise.all(
@@ -103,10 +109,12 @@ export async function ptoDetail(req: Request) {
   };
 }
 /** Self-service: a signed-in staff member requests time off for themselves only. */
-export function createPto(req: Request) {
+export async function createPto(req: Request) {
+  const { startDate, endDate } = req.body as { startDate: string; endDate: string };
+  if (startDate < (await organizationToday(actor(req).organizationId)))
+    throw new ValidationError("Time off cannot start before today", "PTO_IN_PAST");
   return schedulingTransaction(req, async (session) => {
     const staff = actor(req);
-    const { startDate, endDate } = req.body as { startDate: string; endDate: string };
     const overlap = await PtoRequest.exists({
       organizationId: staff.organizationId,
       staffId: staff._id,

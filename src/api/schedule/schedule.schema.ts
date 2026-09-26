@@ -20,7 +20,7 @@ const fields = z
     endTime: time,
     positionRoleId: objectId,
     locationId: objectId,
-    stationName: z.string().trim().min(1).max(100).optional(),
+    stationName: z.string().trim().min(1).max(100).nullable().optional(),
   })
   .strict();
 const endAfterStart = { message: "End must follow start on the same day", path: ["endTime"] };
