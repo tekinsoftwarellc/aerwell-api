@@ -63,7 +63,7 @@ async function transition(
 async function fulfilEpisode(req: Request, row: AppointmentDocument, session: ClientSession) {
   if (!row.episodeId) return;
   const episode = await AssessmentEpisode.findOneAndUpdate(
-    { _id: row.episodeId },
+    { _id: row.episodeId, status: "open" },
     { $addToSet: { fulfilledServiceIds: row.serviceId } },
     { session, new: true }
   );
@@ -127,6 +127,15 @@ export async function changeStatus(req: Request) {
       }
       if (to === "no_show") {
         await ledger.settle({ appointmentId: row._id }, "consumed", staffId, "no_show", session);
+        // A missed assessment component forfeits the episode's shared unit too.
+        if (row.episodeId)
+          await ledger.settle(
+            { episodeId: row.episodeId },
+            "consumed",
+            staffId,
+            "component_no_show",
+            session
+          );
         await recordNoShow(row, session);
       }
       await audit(
@@ -177,7 +186,9 @@ async function applyCancellation(
   session: ClientSession
 ) {
   const terms = await cancellationTerms(row, new Date(), session);
-  const forfeit = terms.forfeitsAllowance && !input.waiveFee;
+  // Once the member has checked in, the visit is being delivered: the unit is used.
+  const started = ["checked_in", "in_progress"].includes(row.status);
+  const forfeit = started || (terms.forfeitsAllowance && !input.waiveFee);
   const feeCents = input.waiveFee ? 0 : terms.feeCents;
   const settled = await ledger.settle(
     { appointmentId: row._id },

@@ -48,7 +48,7 @@ export const ledger = {
       ...(exclude.appointmentId ? { appointmentId: { $ne: exclude.appointmentId } } : {}),
       ...(exclude.episodeId ? { episodeId: { $ne: exclude.episodeId } } : {}),
     })
-      .select("membershipId benefitId periodStart quantity")
+      .select("membershipId benefitId periodStart periodEnd quantity")
       .session(session)
       .lean();
     const usage: Record<string, number> = {};
@@ -56,13 +56,15 @@ export const ledger = {
       const plan = plans.find((p) => p.id === holding.planId);
       for (const benefit of plan?.benefits ?? []) {
         if (!benefit.period || benefit.includedQuantity <= 0) continue;
-        const { start } = benefitPeriod(holding.startedAt, benefit.period, at);
+        const { start, end } = benefitPeriod(holding.startedAt, benefit.period, at);
         usage[usageKey(holding.id, benefit.id)] = rows
           .filter(
             (r) =>
               String(r.membershipId) === holding.id &&
               r.benefitId === benefit.id &&
-              r.periodStart.getTime() === start.getTime()
+              // Overlap, not equality: a period-policy edit must not orphan held units.
+              r.periodStart < end &&
+              r.periodEnd > start
           )
           .reduce((sum, r) => sum + r.quantity, 0);
       }

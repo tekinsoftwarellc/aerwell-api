@@ -221,3 +221,55 @@ it("reschedule to a place outside the market is refused atomically", async () =>
   const detail = await w.api.get(`/api/v1/appointments/${id}`);
   expect(detail.body.data.startAt).toBe(at(DAY, "09:00").toISOString());
 });
+
+it("review M2: cancelling after check-in forfeits the unit even with no late-fee policy", async () => {
+  const w = await bookingWorld();
+  const { id } = await booked(w, ["aerwell-essential"], "clinician-telehealth-visit");
+  await w.api.patch(`/api/v1/appointments/${id}/status`, { status: "checked_in" });
+  const res = await w.api.post(`/api/v1/appointments/${id}/cancel`, {
+    reason: "Left",
+    waiveFee: true,
+  });
+  expect(res.body.data.cancellation.allowance).toBe("forfeited");
+  expect((await ledgerOf(id)).map((r) => r.status)).toEqual(["consumed"]);
+});
+
+it("review H2: units reserved under a quarterly period still count after the benefit becomes yearly", async () => {
+  const w = await bookingWorld();
+  const { MembershipPlan } = await import("../catalog/catalog.model.js");
+  const plan = w.plans.get("aerwell-essential");
+  const setUnit = (unit: string) =>
+    MembershipPlan.updateOne(
+      { _id: plan?._id },
+      {
+        $set: {
+          benefits: (plan?.benefits ?? []).map((b) =>
+            String(b.serviceId) === w.service("clinician-telehealth-visit")
+              ? { ...b, period: { unit, anchor: "anniversary", rollover: "none" } }
+              : b
+          ),
+        },
+      }
+    );
+  await setUnit("quarter");
+  // Second anniversary quarter (from 2027-04-15): its start differs from the yearly anchor.
+  const Q2 = "2027-05-10";
+  await shiftFor(w.provider.staff._id, w.vegas._id, Q2);
+  const member = await w.member(["aerwell-essential"]);
+  for (const time of ["09:00", "11:00"])
+    expect(
+      (
+        await w.api.post("/api/v1/appointments", {
+          ...w.booking(member._id, "clinician-telehealth-visit"),
+          startAt: at(Q2, time).toISOString(),
+        })
+      ).status
+    ).toBe(201);
+  await setUnit("year");
+  const q = await w.quoteOf({
+    ...w.booking(member._id, "clinician-telehealth-visit"),
+    startAt: at(Q2, "13:00").toISOString(),
+  });
+  expect(q.body.data.allowance).toMatchObject({ usedBefore: 2, remainingAfter: 0 });
+  expect(q.body.data.decision).toBe("retail");
+});

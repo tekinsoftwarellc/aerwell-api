@@ -158,6 +158,8 @@ async function replay(
   const same =
     String(existing.memberId) === body.memberId &&
     String(existing.serviceId) === body.serviceId &&
+    String(existing.providerId) === body.providerId &&
+    String(existing.locationId) === body.locationId &&
     existing.startAt.getTime() === body.startAt.getTime();
   if (!same)
     throw new ConflictError(

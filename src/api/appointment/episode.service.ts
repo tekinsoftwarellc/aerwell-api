@@ -126,6 +126,16 @@ async function episodeTarget(req: Request) {
   });
   if (!episode) throw new NotFoundError("Assessment episode not found");
   await scopedMember(req, String(episode.memberId));
+  // Own scope: only an episode whose live components are all the actor's.
+  if (req.permission?.scope === "own") {
+    const foreign = await Appointment.exists({
+      episodeId: episode._id,
+      status: { $in: LIVE_STATUSES },
+      providerId: { $ne: actor(req)._id },
+    });
+    const mine = await Appointment.exists({ episodeId: episode._id, providerId: actor(req)._id });
+    if (foreign || !mine) throw new NotFoundError("Assessment episode not found");
+  }
   return episode;
 }
 
@@ -175,16 +185,21 @@ export async function cancelEpisode(req: Request) {
     const episode = await AssessmentEpisode.findById(initial._id).session(session);
     if (episode?.status !== "open")
       throw new ConflictError("This assessment is no longer open", undefined, "EPISODE_NOT_OPEN");
-    if (episode.fulfilledServiceIds.length)
+    // Any component past booking (checked in, in progress, completed, no-show) means delivery began.
+    const started = await Appointment.exists({
+      episodeId: episode._id,
+      status: { $nin: ["booked", "confirmed", "cancelled"] },
+    }).session(session);
+    if (episode.fulfilledServiceIds.length || started)
       throw new ConflictError(
-        "A component was already completed; the assessment cannot be cancelled",
+        "A component has started; the assessment cannot be cancelled",
         undefined,
         "EPISODE_IN_PROGRESS"
       );
     const staff = actor(req);
     const now = new Date();
     await Appointment.updateMany(
-      { episodeId: episode._id, status: { $in: ["booked", "confirmed", "checked_in"] } },
+      { episodeId: episode._id, status: { $in: ["booked", "confirmed"] } },
       {
         $set: {
           status: "cancelled",

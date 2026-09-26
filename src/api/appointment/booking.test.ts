@@ -310,3 +310,18 @@ it("serializes concurrent last-unit bookings: only one writer ever attempts the 
     2
   );
 });
+
+it("review LOW: an idempotency key reused for another provider is refused, not replayed", async () => {
+  const w = await bookingWorld();
+  const member = await w.member();
+  const body = {
+    ...w.booking(member._id, "clinician-telehealth-visit"),
+    idempotencyKey: "key-abcdefgh",
+  };
+  expect((await w.api.post("/api/v1/appointments", body)).status).toBe(201);
+  const other = await w.api.post("/api/v1/appointments", {
+    ...body,
+    providerId: String(w.director.staff._id),
+  });
+  expect(other.body.code).toBe("IDEMPOTENCY_KEY_REUSED");
+});

@@ -130,7 +130,11 @@ describe("benefits view", () => {
   it("reports used/remaining from the allowance ledger and anniversary renewal", async () => {
     const holding = await hold("aerwell-continuum");
     const assessmentId = (await Service.findOne({ slug: "advanced-assessment" }).lean())?._id;
-    const entry = (periodStart: string, status: string) => ({
+    const entry = (
+      periodStart: string,
+      status: string,
+      periodEnd = "2027-01-15T08:00:00.000Z"
+    ) => ({
       organizationId: ORG,
       memberId: member._id,
       membershipId: holding.body.data._id,
@@ -138,7 +142,7 @@ describe("benefits view", () => {
       benefitId: String(assessmentId),
       serviceId: assessmentId,
       periodStart: new Date(periodStart),
-      periodEnd: new Date("2027-01-15T08:00:00.000Z"),
+      periodEnd: new Date(periodEnd),
       status,
       holding: status !== "released",
     });
@@ -147,7 +151,7 @@ describe("benefits view", () => {
       entry("2026-01-15T08:00:00.000Z", "reserved"),
       entry("2026-01-15T08:00:00.000Z", "consumed"),
       entry("2026-01-15T08:00:00.000Z", "released"),
-      entry("2025-01-15T08:00:00.000Z", "consumed"),
+      entry("2025-01-15T08:00:00.000Z", "consumed", "2026-01-15T08:00:00.000Z"),
     ]);
     const res = await admin.get(`/members/${idOf(member)}/benefits?at=2026-09-26T00:00:00.000Z`);
     expect(res.status).toBe(200);

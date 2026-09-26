@@ -156,3 +156,36 @@ it("cancelling an untouched episode releases the unit and its bookings; a starte
   ]);
   expect(await AssessmentEpisode.countDocuments()).toBe(2);
 });
+
+it("review H1/M3/M1: a started or no-show component blocks the episode cancel and holds the unit", async () => {
+  const w = await bookingWorld();
+  const member = await w.member(["aerwell-essential"]);
+  const episodeId = (await openEpisode(w, member._id)).body.data.episode._id;
+  const dexa = (await component(w, member._id, episodeId, "dexa-scan", "09:00")).body.data
+    .appointment._id;
+  const vo2 = (await component(w, member._id, episodeId, "vo2-max-test", "10:00")).body.data
+    .appointment._id;
+  await w.api.patch(`/api/v1/appointments/${dexa}/status`, { status: "checked_in" });
+  await w.api.patch(`/api/v1/appointments/${dexa}/status`, { status: "in_progress" });
+  const refused = await w.api.post(`/api/v1/assessment-episodes/${episodeId}/cancel`, {
+    reason: "x",
+  });
+  expect(refused.body.code).toBe("EPISODE_IN_PROGRESS");
+  expect((await AllowanceLedgerEntry.findOne({ episodeId }).lean())?.status).toBe("reserved");
+  // A no-show component forfeits the episode unit.
+  const noShow = await w.api.patch(`/api/v1/appointments/${vo2}/status`, { status: "no_show" });
+  expect(noShow.body.data.status).toBe("no_show");
+  expect((await AllowanceLedgerEntry.findOne({ episodeId }).lean())?.status).toBe("consumed");
+  // Own-scope staff who deliver none of its components cannot see or cancel it.
+  const { StaffMember } = await import("../staff/staff.model.js");
+  const { staffFixture } = await import("../../test/staffFixture.js");
+  const { as } = await import("../../test/scheduleFixture.js");
+  const other = await staffFixture(false, 1);
+  await StaffMember.updateOne(
+    { _id: other.staff._id },
+    { permissionOverrides: [{ module: "APPOINTMENTS", level: "edit", scope: "own" }] }
+  );
+  expect((await as(other.accessToken).get(`/api/v1/assessment-episodes/${episodeId}`)).status).toBe(
+    404
+  );
+});
