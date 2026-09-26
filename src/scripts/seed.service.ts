@@ -3,6 +3,7 @@ import { StaffCredential } from "../api/auth/auth.model.js";
 import { passwordSchema } from "../api/auth/auth.schema.js";
 import { hashPassword } from "../api/auth/password.js";
 import { Market } from "../api/catalog/catalog.model.js";
+import { seedClinicalCatalog } from "../api/clinical/catalog.seed.js";
 import { Environment, Location } from "../api/location/location.model.js";
 import { MODULES, seedRoles } from "../api/role/permission.js";
 import { Role } from "../api/role/role.model.js";
@@ -82,6 +83,7 @@ async function seedRoleTemplates(organizationId: string) {
 export async function seedDevelopmentData(input: SeedInput): Promise<void> {
   const data = seedInputSchema.parse(input);
   await seedCatalog(data.organizationId);
+  await seedClinicalCatalog(data.organizationId);
   const location = await seedOrganization(data.organizationId);
   const role = await seedRoleTemplates(data.organizationId);
   const staff = await StaffMember.findOneAndUpdate(

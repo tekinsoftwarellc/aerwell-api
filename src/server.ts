@@ -10,6 +10,7 @@ import { appointmentRouter } from "./api/appointment/appointment.router.js";
 import { createAuthRouter, meRouter } from "./api/auth/auth.router.js";
 import { webhookRouter } from "./api/billing/webhook.js";
 import { catalogRouter } from "./api/catalog/catalog.router.js";
+import { clinicalRouter } from "./api/clinical/clinical.router.js";
 import { healthRouter } from "./api/health/health.router.js";
 import { createInviteRouter } from "./api/invite/invite.router.js";
 import { memberRouter } from "./api/member/member.router.js";
@@ -58,6 +59,8 @@ export const createServer = (cache: CacheService = createCacheService()): Expres
   app.use("/api/v1", catalogRouter);
   app.use("/api/v1", memberRouter);
   app.use("/api/v1", appointmentRouter);
+  // W8 clinical record (appended; self-contained router).
+  app.use("/api/v1", clinicalRouter);
   app.use((_req, _res, next) => next(new NotFoundError("Route not found")));
   app.use(errorHandler);
   return app;
