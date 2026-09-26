@@ -29,12 +29,17 @@ interface KindSpec {
   /** Body keys the staff member may edit in the confirmation dialog (text only). */
   editable: string[];
   input(args: Args): RouteInput;
-  precheck(actor: Actor, input: RouteInput): Promise<Prechecked>;
+  /** `scope` is the target route's resolved scope for this actor ("own" | "all"). */
+  precheck(actor: Actor, input: RouteInput, scope?: string): Promise<Prechecked>;
   preview(input: RouteInput, prechecked: unknown): Promise<Record<string, unknown>>;
   /** Called with the new draft id so the stored input can carry server-made values. */
   finalize?(input: RouteInput, draftId: string, prechecked: unknown): RouteInput;
   resultOf(data: unknown): { targetType: string; targetId: string };
+  /** The stored input carries an idempotency key, so a crashed confirm may be retried. */
+  idempotent?: boolean;
 }
+/** A "confirming" claim older than this belongs to a crashed request. */
+export const STALE_CLAIM_MS = 2 * 60_000;
 
 const str = (v: unknown) => (typeof v === "string" ? v : undefined);
 const pick = (args: Args, keys: string[]) =>
@@ -66,7 +71,15 @@ const booking: KindSpec = {
       bookingSource: "staff",
     },
   }),
-  async precheck(a, input) {
+  async precheck(a, input, scope) {
+    // The route refuses this at confirm; refusing now keeps a doomed draft off screen.
+    if (scope === "own" && bodyOf(input)["providerId"] !== String(a.staff._id))
+      return {
+        ok: false,
+        status: 403,
+        code: "FORBIDDEN",
+        message: "Own-scope staff can only book their own appointments",
+      };
     const {
       providerId: P,
       reason: R,
@@ -118,6 +131,7 @@ const booking: KindSpec = {
     };
   },
   resultOf: (data) => ({ targetType: "Appointment", targetId: idOf(data, "appointment") }),
+  idempotent: true,
 };
 
 const memberWrite = (
@@ -235,7 +249,7 @@ export async function proposeDraft(
   const prepared = await prepareRoute(a, spec.route, input);
   if (!("req" in prepared)) return prepared;
   const validated: RouteInput = { params: prepared.req.params, body: prepared.req.body };
-  const checked = await spec.precheck(a, validated);
+  const checked = await spec.precheck(a, validated, prepared.req.permission?.scope);
   if (!checked.ok) return checked;
   const Id = new Types.ObjectId();
   const stored = spec.finalize?.(validated, String(Id), checked.data) ?? validated;
@@ -254,6 +268,11 @@ export async function proposeDraft(
   return { ok: true, data: draftView(row) };
 }
 
+const pending = { status: "pending" };
+const stale = () => ({
+  status: "confirming",
+  confirmingAt: { $lt: new Date(Date.now() - STALE_CLAIM_MS) },
+});
 const mine = (req: Request) => ({
   _id: req.params["draftId"],
   organizationId: actor(req).organizationId,
@@ -281,14 +300,21 @@ export async function confirmDraft(req: Request) {
   if (!existing) throw new NotFoundError("Draft not found", "DRAFT_NOT_FOUND");
   const spec = DRAFT_SPECS[existing.kind as DraftKind];
   const input = withEdits(existing.input as RouteInput, edits, spec.editable);
-  // ponytail: a crash between claim and write leaves the draft "confirming"; re-draft to retry.
+  // A crash between claim and write leaves "confirming": only an idempotent kind is re-run.
   const claimed = await AlfredDraft.findOneAndUpdate(
-    { ...mine(req), status: "pending" },
-    { $set: { status: "confirming" } },
+    { ...mine(req), ...(spec.idempotent ? { $or: [{ status: "pending" }, stale()] } : pending) },
+    { $set: { status: "confirming", confirmingAt: new Date() } },
     { new: true }
   );
-  if (!claimed)
+  if (!claimed) {
+    if (await AlfredDraft.exists({ ...mine(req), ...stale() }))
+      throw new ConflictError(
+        "We could not tell whether this was saved. Check the record, then cancel this draft.",
+        undefined,
+        "DRAFT_OUTCOME_UNKNOWN"
+      );
     throw new ConflictError("This draft was already decided", undefined, "DRAFT_DECIDED");
+  }
   const outcome = await callRoute({ staff, requestId: req.requestId }, spec.route, input);
   if (!outcome.ok) {
     await AlfredDraft.updateOne(
@@ -315,8 +341,9 @@ export async function confirmDraft(req: Request) {
 }
 
 export async function cancelDraft(req: Request) {
+  // A stale claim can be cancelled too, so a crashed confirm never pins a draft forever.
   const row = await AlfredDraft.findOneAndUpdate(
-    { ...mine(req), status: "pending" },
+    { ...mine(req), $or: [pending, stale()] },
     { $set: { status: "cancelled", decidedAt: new Date() } },
     { new: true }
   );

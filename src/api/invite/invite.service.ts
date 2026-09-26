@@ -64,6 +64,11 @@ export async function createInvite(req: Request) {
       undefined,
       "STAFF_EMAIL_EXISTS"
     );
+  // Re-inviting a pending person applies the role just checked, not the one they had.
+  if (staff && String(staff.roleId) !== String(role._id)) {
+    staff.roleId = role._id;
+    await staff.save();
+  }
   staff ??= await StaffMember.create({
     organizationId,
     email: req.body.email,
@@ -85,6 +90,11 @@ export async function changeInvite(req: Request, revoke = false) {
     accountStatus: "pending_onboarding",
   });
   if (!staff) throw new NotFoundError();
+  if (!revoke) {
+    // A fresh token is a fresh grant: the sender must be able to grant this access now.
+    const role = await Role.findOne({ _id: staff.roleId, organizationId });
+    await guardGrant(req, [...(role?.permissions ?? []), ...(staff.permissionOverrides ?? [])]);
+  }
   if (revoke) {
     invite.status = "revoked";
     await invite.save();

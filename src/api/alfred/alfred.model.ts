@@ -62,6 +62,8 @@ const draftSchema = new Schema(
     input: { type: Schema.Types.Mixed, required: true },
     preview: { type: Schema.Types.Mixed, required: true },
     status: { type: String, enum: DRAFT_STATUSES, default: "pending" },
+    /** When the current "confirming" claim was taken (a stale claim means a crash). */
+    confirmingAt: { type: Date, default: null },
     lastError: { type: String, default: null },
     result: { type: Schema.Types.Mixed, default: null },
     decidedAt: { type: Date, default: null },

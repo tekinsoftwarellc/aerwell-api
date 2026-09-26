@@ -9,7 +9,7 @@ const errors = {
   },
   409: {
     description:
-      "DRAFT_DECIDED, ALREADY_DECIDED, or the target route's own conflict codes on confirm",
+      "DRAFT_DECIDED, DRAFT_OUTCOME_UNKNOWN (a crashed confirm of a non-idempotent draft: check, then cancel), ALREADY_DECIDED, or the target route's own conflict codes on confirm",
   },
   429: { description: "AI_RATE_LIMITED (per staff member)" },
   502: {

@@ -239,3 +239,63 @@ it("a supplement order is a draft record only: priced from the catalog, never pl
   const fd = await propose(w.http(w.frontDesk.accessToken), "propose_supplement_order", args);
   expect(fd.result).toEqual({ error: expect.objectContaining({ status: 403 }) });
 });
+
+it("W11: an own-scope booker proposing another provider is refused at propose, not at confirm", async () => {
+  const w = await alfredWorld();
+  const { Member } = await import("../member/member.model.js");
+  await Member.updateOne(
+    { _id: w.memberId },
+    { $push: { assignedClinicianIds: w.nurseOwn.staff._id } }
+  );
+  const own = await propose(
+    w.http(w.nurseOwn.accessToken),
+    "propose_book_appointment",
+    bookingArgs(w)
+  );
+  expect(own.result).toEqual({ error: expect.objectContaining({ status: 403 }) });
+  expect(await AlfredDraft.countDocuments()).toBe(0);
+});
+
+it("W11: a booking draft stuck in confirming (crash after claim) can be confirmed again, booking once", async () => {
+  const w = await alfredWorld();
+  const api = w.http(w.director.accessToken);
+  const [draft] = (await propose(api, "propose_book_appointment", bookingArgs(w))).drafts;
+  // The crashed attempt had already written the appointment with the draft's key.
+  const stored = await AlfredDraft.findById(draft.id).lean();
+  const input = stored?.input as { body: Record<string, unknown> };
+  expect((await api.post("/api/v1/appointments", input.body)).status).toBe(201);
+  await AlfredDraft.updateOne(
+    { _id: draft.id },
+    { status: "confirming", confirmingAt: new Date() }
+  );
+  // A live claim is still refused…
+  expect((await api.post(draftPath(draft.id, "/confirm"))).body.code).toBe("DRAFT_DECIDED");
+  // …but once it is stale the idempotency key makes a retry safe.
+  await AlfredDraft.updateOne(
+    { _id: draft.id },
+    { confirmingAt: new Date(Date.now() - 10 * 60_000) }
+  );
+  const retried = await api.post(draftPath(draft.id, "/confirm"));
+  expect(retried.status).toBe(200);
+  expect(retried.body.data.status).toBe("confirmed");
+  expect(await Appointment.countDocuments()).toBe(1);
+  expect(retried.body.data.result.targetId).toBe(String((await Appointment.findOne())?._id));
+});
+
+it("W11: a stuck non-idempotent draft is never re-run blindly; the staff member can cancel it", async () => {
+  const w = await alfredWorld();
+  const api = w.http(w.director.accessToken);
+  const [note] = (await propose(api, "propose_add_note", { memberId: w.memberId, body: "Stuck" }))
+    .drafts;
+  await AlfredDraft.updateOne(
+    { _id: note.id },
+    { status: "confirming", confirmingAt: new Date(Date.now() - 10 * 60_000) }
+  );
+  const retried = await api.post(draftPath(note.id, "/confirm"));
+  expect(retried.status).toBe(409);
+  expect(retried.body.code).toBe("DRAFT_OUTCOME_UNKNOWN");
+  expect(await MemberNote.countDocuments()).toBe(0);
+  const cancelled = await api.post(draftPath(note.id, "/cancel"));
+  expect(cancelled.status).toBe(200);
+  expect(cancelled.body.data.status).toBe("cancelled");
+});
