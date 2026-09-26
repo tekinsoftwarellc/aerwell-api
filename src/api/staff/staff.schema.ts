@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { nonEmptyPatch, objectId } from "../../common/http.js";
+import { nonEmptyPatch, objectId, queryArray } from "../../common/http.js";
 import { emailSchema } from "../auth/auth.schema.js";
 import { overrideSchema } from "../role/permission.js";
 export const dateOnly = z
@@ -83,14 +83,13 @@ export const bulkDeactivate = z
   .object({ ids: z.array(objectId).min(1).max(100), ...deactivateSchema.innerType().shape })
   .strict()
   .refine((v) => v.reason !== "other" || Boolean(v.notes?.trim()), "Notes are required for Other");
-const values = (item: z.ZodTypeAny) =>
-  z.preprocess((v) => (typeof v === "string" ? [v] : v), z.array(item).max(30).optional());
+
 export const staffQuery = z
   .object({
     q: z.string().max(100).optional(),
-    roleIds: values(objectId),
-    status: values(z.enum(["active", "pending_onboarding", "deactivated", "on_duty"])),
-    flags: values(z.enum(["custom", "certification_renewal", "pto_requested", "open_shift"])),
+    roleIds: queryArray(objectId),
+    status: queryArray(z.enum(["active", "pending_onboarding", "deactivated", "on_duty"])),
+    flags: queryArray(z.enum(["custom", "certification_renewal", "pto_requested", "open_shift"])),
     groupBy: z.literal("role").optional(),
     page: z.coerce.number().int().min(1).default(1),
     limit: z.coerce.number().int().min(1).max(100).default(20),

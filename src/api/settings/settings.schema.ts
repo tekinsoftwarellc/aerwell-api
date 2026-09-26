@@ -23,6 +23,7 @@ export const regionalSchema = nonEmptyPatch(
     .object({
       dateFormat: z.enum(["MM/DD/YYYY", "DD/MM/YYYY", "YYYY-MM-DD"]).optional(),
       measurementSystem: z.enum(["imperial", "metric"]).optional(),
+      ptoAllowanceDays: z.number().int().min(0).max(366).optional(),
       currency: z.enum(["USD", "CAD", "EUR", "GBP"]).optional(),
     })
     .strict()

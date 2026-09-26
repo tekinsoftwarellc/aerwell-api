@@ -10,6 +10,7 @@ import { createAuthRouter, meRouter } from "./api/auth/auth.router.js";
 import { catalogRouter } from "./api/catalog/catalog.router.js";
 import { healthRouter } from "./api/health/health.router.js";
 import { createInviteRouter } from "./api/invite/invite.router.js";
+import { schedulingRouter } from "./api/schedule/schedule.router.js";
 import { serviceRouter } from "./api/service/service.router.js";
 import { settingsRouter } from "./api/settings/settings.router.js";
 import { staffRouter } from "./api/staff/staff.router.js";
@@ -45,6 +46,7 @@ export const createServer = (cache: CacheService = createCacheService()): Expres
   app.use("/api/v1", meRouter);
   app.use("/api/v1", settingsRouter);
   app.use("/api/v1", createInviteRouter(cache));
+  app.use("/api/v1", schedulingRouter);
   app.use("/api/v1", staffRouter);
   app.use("/api/v1", uploadRouter);
   app.use("/api/v1", serviceRouter);

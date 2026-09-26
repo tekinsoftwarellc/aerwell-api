@@ -7,6 +7,7 @@ import { sendInvite } from "../invite/invite.service.js";
 import { Location } from "../location/location.model.js";
 import { permits, resolvePermissions } from "../role/permission.js";
 import { Role } from "../role/role.model.js";
+import { derivedFlagSets, flagsFor, isDerivedFlag, onDutyIds } from "../schedule/flags.js";
 import { guardGrant } from "../settings/settings.service.js";
 import { Certification, Employment, StaffFlag, StaffNote } from "./staff-details.model.js";
 import { type StaffDocument, StaffMember } from "./staff.model.js";
@@ -33,17 +34,10 @@ async function matchesFlags(organizationId: string, flags: string[]) {
         String
       )
     );
-  if (flags.includes("certification_renewal")) {
-    const end = new Date(Date.now() + 60 * 86400_000).toISOString().slice(0, 10);
-    ids.push(
-      ...(
-        await Certification.find({ organizationId, expirationDate: { $lte: end } }).distinct(
-          "staffId"
-        )
-      ).map(String)
-    );
-  }
-  // W3 adds PTO/open-shift producers. Until then these filters match no rows, never all rows.
+  const derived = flags.filter(isDerivedFlag);
+  if (derived.length)
+    for (const members of (await derivedFlagSets(organizationId, derived)).values())
+      ids.push(...members);
   return ids;
 }
 export async function directory(req: Request) {
@@ -55,11 +49,22 @@ export async function directory(req: Request) {
     filter["$or"] = [{ firstName: re }, { lastName: re }, { email: re }];
   }
   if (query.roleIds?.length) filter["roleId"] = { $in: query.roleIds };
-  if (query.status?.length)
-    filter["accountStatus"] = { $in: query.status.filter((s) => s !== "on_duty") };
+  const [flagSets, onDuty] = await Promise.all([
+    derivedFlagSets(staff.organizationId),
+    onDutyIds(staff.organizationId),
+  ]);
+  if (query.status?.length) {
+    const conditions: FilterQuery<unknown>[] = [
+      { accountStatus: { $in: query.status.filter((s) => s !== "on_duty") } },
+    ];
+    if (query.status.includes("on_duty"))
+      conditions.push({ accountStatus: "active", _id: { $in: [...onDuty] } });
+    filter["$and"] = [{ $or: conditions }];
+  }
   if (query.flags?.length)
     filter["_id"] = { $in: await matchesFlags(staff.organizationId, query.flags) };
-  if (req.permission?.scope === "own") filter["$and"] = [{ _id: staff._id }];
+  if (req.permission?.scope === "own")
+    filter["$and"] = [...(filter["$and"] ?? []), { _id: staff._id }];
   const [rows, total] = await Promise.all([
     StaffMember.find(filter)
       .sort({ roleId: 1, lastName: 1, _id: 1 })
@@ -74,13 +79,17 @@ export async function directory(req: Request) {
       role: await Role.findOne({ _id: row.roleId, organizationId: staff.organizationId })
         .select("name shortCode color")
         .lean(),
-      flags: await StaffFlag.find({
-        staffId: row._id,
-        organizationId: staff.organizationId,
-        resolvedAt: null,
-      })
-        .select("label kind")
-        .lean(),
+      flags: [
+        ...flagsFor(flagSets, String(row._id)),
+        ...(await StaffFlag.find({
+          staffId: row._id,
+          organizationId: staff.organizationId,
+          resolvedAt: null,
+        })
+          .select("label kind")
+          .lean()),
+      ],
+      dutyStatus: row.accountStatus === "active" && onDuty.has(String(row._id)) ? "on_duty" : "off",
     }))
   );
   await audit(req, "viewed", "StaffDirectory", staff.organizationId);
@@ -154,11 +163,14 @@ export async function staffProfile(req: Request) {
       .sort({ createdAt: -1 })
       .limit(20)
       .lean(),
-    flags: await StaffFlag.find({
-      staffId: target._id,
-      organizationId: target.organizationId,
-      resolvedAt: null,
-    }).lean(),
+    flags: [
+      ...flagsFor(await derivedFlagSets(target.organizationId), String(target._id)),
+      ...(await StaffFlag.find({
+        staffId: target._id,
+        organizationId: target.organizationId,
+        resolvedAt: null,
+      }).lean()),
+    ],
   };
 }
 export async function updateStaff(req: Request) {
