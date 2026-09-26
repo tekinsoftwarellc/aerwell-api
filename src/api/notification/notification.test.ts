@@ -221,7 +221,7 @@ it("pages newest first by cursor, marks one or all read, and never exposes anoth
   await as(a.accessToken).post(`/api/v1/notifications/${target}/read`);
   expect((await Notification.findById(target).lean())?.readAt).toEqual(readAt);
   expect(await titles(a.accessToken, "?unread=true")).toEqual(["n3", "n2", "n1", "n0"]);
-  expect(await titles(a.accessToken, "?unread=false")).toEqual(["n4", "n3", "n2", "n1", "n0"]);
+  expect((await as(a.accessToken).get("/api/v1/notifications?unread=false")).status).toBe(400);
   const all = await as(a.accessToken).post("/api/v1/notifications/read-all");
   expect(all.body.data).toEqual({ unreadCount: 0 });
   expect((await inbox(b.accessToken)).unreadCount).toBe(1);
@@ -242,4 +242,12 @@ it("skips inactive staff, the actor and duplicate dedupe keys", async () => {
   expect(await notify({ ...notice, staffIds: [a.staff._id, b.staff._id] })).toBe(1);
   expect(await notify({ ...direct(a.staff._id), actorId: a.staff._id })).toBe(0);
   expect(await Notification.countDocuments({ recipientStaffId: gone.staff._id })).toBe(0);
+});
+
+it("review M: over-long titles are truncated, never silently dropped", async () => {
+  const staff = await staffWith({ STAFF_RECORDS: "view" });
+  expect(await notify(direct(staff.staff._id, { title: "x".repeat(500) }))).toBe(1);
+  const row = await Notification.findOne({ recipientStaffId: staff.staff._id }).lean();
+  expect(row?.title).toHaveLength(200);
+  expect(row?.title.endsWith("…")).toBe(true);
 });

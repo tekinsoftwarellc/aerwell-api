@@ -30,11 +30,23 @@ async function staffName(id: Id) {
   const s = await StaffMember.findById(id).select("firstName lastName").lean();
   return s ? `${s.firstName} ${s.lastName}` : "A staff member";
 }
-/** The member's assigned clinicians, or else everyone holding the fallback grant. */
-async function memberAudience(memberId: Id, fallback: Notice["audience"]) {
+/** The member's assigned clinicians; `notify` falls back to the grant holders when none can receive it. */
+async function memberAudience(memberId: Id, fallback: Notice["fallback"]) {
   const member = await Member.findById(memberId).select("assignedClinicianIds").lean();
-  const assigned = member?.assignedClinicianIds ?? [];
-  return assigned.length ? { staffIds: assigned } : { audience: fallback };
+  return { staffIds: member?.assignedClinicianIds ?? [], fallback };
+}
+/**
+ * A producer's own lookups (names, titles, members) run before `notify`, so the
+ * guard wraps the whole producer: nothing it does can reach the request.
+ */
+function safely<A extends unknown[]>(kind: string, produce: (...args: A) => Promise<void>) {
+  return async (...args: A) => {
+    try {
+      await produce(...args);
+    } catch (error) {
+      logger.warn({ kind, error: (error as Error).name }, "Notification producer failed");
+    }
+  };
 }
 
 interface PtoRow {
@@ -44,7 +56,7 @@ interface PtoRow {
   endDate: string;
   status?: string | null;
 }
-export async function ptoRequested(row: PtoRow) {
+async function ptoRequestedNotice(row: PtoRow) {
   await notify({
     organizationId: row.organizationId,
     kind: "pto_requested",
@@ -58,13 +70,13 @@ export async function ptoRequested(row: PtoRow) {
     subjectStaffId: row.staffId,
   });
 }
-export async function ptoDecided(row: PtoRow, actorId: Id) {
+async function ptoDecidedNotice(row: PtoRow, actorId: Id) {
   await notify({
     organizationId: row.organizationId,
     kind: "pto_decided",
     category: "approvals",
     title: `Your time off ${range(row.startDate, row.endDate)} was ${row.status}`,
-    link: `/staff/${row.staffId}`,
+    link: "/profile",
     actorId,
     staffIds: [row.staffId],
     requires: [],
@@ -84,7 +96,7 @@ interface AppointmentRow {
   timeZone: string;
 }
 /** To the provider(s) only; the title names the service and time, never the member. */
-export async function appointmentChanged(
+async function appointmentChangedNotice(
   kind: keyof typeof VERBS,
   row: AppointmentRow,
   actorId: Id,
@@ -103,7 +115,7 @@ export async function appointmentChanged(
   });
 }
 
-export async function clinicalReview(
+async function clinicalReviewNotice(
   kind: "lab_review" | "scan_review",
   row: { organizationId: string; memberId: Id },
   actorId: Id
@@ -124,7 +136,7 @@ export async function clinicalReview(
 const label = (category: string) =>
   category.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
 /** Title carries the flag category, never its free-text title (which may hold PHI). */
-export async function flagRaised(
+async function flagRaisedNotice(
   row: { organizationId: string; memberId: Id; category: string },
   actorId?: Id
 ) {
@@ -141,7 +153,7 @@ export async function flagRaised(
   });
 }
 
-export async function paymentFailed(processorInvoiceId: string) {
+async function paymentFailedNotice(processorInvoiceId: string) {
   const invoice = await Invoice.findOne({ processorInvoiceId }).lean();
   if (!invoice) return;
   await notify({
@@ -157,7 +169,7 @@ export async function paymentFailed(processorInvoiceId: string) {
   });
 }
 
-export async function inviteAccepted(staff: {
+async function inviteAcceptedNotice(staff: {
   _id: Id;
   organizationId: string;
   firstName: string;
@@ -176,6 +188,14 @@ export async function inviteAccepted(staff: {
   });
 }
 
+export const ptoRequested = safely("ptoRequested", ptoRequestedNotice);
+export const ptoDecided = safely("ptoDecided", ptoDecidedNotice);
+export const appointmentChanged = safely("appointmentChanged", appointmentChangedNotice);
+export const clinicalReview = safely("clinicalReview", clinicalReviewNotice);
+export const flagRaised = safely("flagRaised", flagRaisedNotice);
+export const paymentFailed = safely("paymentFailed", paymentFailedNotice);
+export const inviteAccepted = safely("inviteAccepted", inviteAcceptedNotice);
+
 /** Daily: certifications expiring within 60 days (or expired), once per cert and date. */
 export async function certificationNotices(organizationId: string) {
   const today = await organizationToday(organizationId);
@@ -185,8 +205,17 @@ export async function certificationNotices(organizationId: string) {
   })
     .sort({ expirationDate: 1, _id: 1 })
     .lean();
+  const active = new Set(
+    (
+      await StaffMember.distinct("_id", {
+        _id: { $in: certs.map((c) => c.staffId) },
+        accountStatus: "active",
+        deletedAt: null,
+      })
+    ).map(String)
+  );
   let written = 0;
-  for (const cert of certs)
+  for (const cert of certs.filter((c) => active.has(String(c.staffId))))
     written += await notify({
       organizationId,
       kind: "certification_expiring",

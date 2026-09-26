@@ -39,7 +39,7 @@ const ops: Spec[] = [
     "get",
     "/notifications",
     "Notifications",
-    "My delivered notifications, newest first {items[] {id, kind, category, title, link, critical, createdAt, deliveredAt, readAt}, unreadCount, nextCursor}. limit 1-50 (default 20), cursor, unread=true|false. Rows deferred by quiet hours appear when the window ends.",
+    "My delivered notifications, newest first {items[] {id, kind, category, title, link, critical, createdAt, deliveredAt, readAt}, unreadCount, nextCursor}. limit 1-50 (default 20), cursor, unread=true (only unread; any other value is 400). Rows deferred by quiet hours appear when the window ends.",
     [
       {
         name: "limit",
@@ -57,7 +57,7 @@ const ops: Spec[] = [
         name: "unread",
         in: "query",
         required: false,
-        schema: { type: "string", enum: ["true", "false"] },
+        schema: { type: "string", enum: ["true"] },
       },
     ],
   ],

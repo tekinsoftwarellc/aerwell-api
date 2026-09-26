@@ -12,7 +12,7 @@ const listQuery = z
   .object({
     limit: z.coerce.number().int().min(1).max(50).default(20),
     cursor: objectId.optional(),
-    unread: z.enum(["true", "false"]).optional(),
+    unread: z.literal("true").optional(),
   })
   .strict();
 const visible = (req: Request) => ({

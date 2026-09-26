@@ -191,7 +191,11 @@ export async function staffToday(ctx: Ctx) {
       endTime: span && span.endTime > s.endTime ? span.endTime : s.endTime,
     });
   }
-  const staff = await StaffMember.find({ _id: { $in: [...spans.keys()] }, deletedAt: null })
+  const staff = await StaffMember.find({
+    _id: { $in: [...spans.keys()] },
+    accountStatus: "active",
+    deletedAt: null,
+  })
     .select("firstName lastName titlePrefix photoUrl roleId")
     .lean();
   const roles = byId(

@@ -223,3 +223,83 @@ it("reminds STAFF_RECORDS masters once about certifications expiring within 60 d
   ]);
   expect(await titlesOf(editor.staff._id)).toEqual([]);
 });
+
+it("review H1: a producer's own lookups failing never fail the committed request", async () => {
+  const w = await bookingWorld();
+  const member = await w.member(["aerwell-essential"]);
+  const { Service } = await import("../service/service.model.js");
+  const spy = vi.spyOn(Service, "findById").mockImplementation(() => {
+    throw new Error("mongo down");
+  });
+  try {
+    const res = await w.api.post(
+      "/api/v1/appointments",
+      w.booking(member._id, "clinician-telehealth-visit")
+    );
+    expect(res.status).toBe(201);
+    expect(spy).toHaveBeenCalled();
+  } finally {
+    spy.mockRestore();
+  }
+  const staffSpy = vi.spyOn(StaffMember, "findById").mockImplementation(() => {
+    throw new Error("mongo down");
+  });
+  try {
+    const nurse = await staffWith({ STAFF_RECORDS: "view" });
+    const pto = await as(nurse.accessToken).post("/api/v1/staff/pto-requests", {
+      startDate: "2027-03-10",
+      endDate: "2027-03-10",
+      type: "sick",
+    });
+    expect(pto.status).toBe(201);
+  } finally {
+    staffSpy.mockRestore();
+  }
+});
+
+it("review M: falls back to the audience when no assigned clinician can receive it", async () => {
+  const ids = await catalogIds();
+  const admin = await staffFixture(true);
+  const coach = await staffWith({ MEMBER_RECORDS: "view" }); // assigned, but no LABS_SCANS
+  const editor = await staffWith({ MEMBER_RECORDS: "view", LABS_SCANS: "edit" });
+  const member = await memberRow({ sex: "female", assignedClinicianIds: [coach.staff._id] });
+  await as(admin.accessToken).post(`/api/v1/members/${idOf(member)}/lab-panels`, {
+    drawnAt: "2027-02-20T16:00:00.000Z",
+    results: [result(ids["tsh"], 2)],
+  });
+  expect(await titlesOf(editor.staff._id)).toEqual(["New lab results to review"]);
+  expect(await titlesOf(coach.staff._id)).toEqual([]);
+});
+
+it("review M: cancelling an assessment tells each component's provider; no-show skips the actor", async () => {
+  const w = await bookingWorld();
+  const member = await w.member(["aerwell-continuum"]);
+  const opened = await w.api.post("/api/v1/assessment-episodes", {
+    memberId: String(member._id),
+    bundleServiceId: w.service("advanced-assessment"),
+    locationId: String(w.vegas._id),
+  });
+  const episodeId = opened.body.data.episode._id;
+  const booked = await w.api.post("/api/v1/appointments", {
+    ...w.booking(member._id, "dexa-scan", "09:00"),
+    episodeId,
+  });
+  expect(booked.status).toBe(201);
+  await w.api.post(`/api/v1/assessment-episodes/${episodeId}/cancel`, { reason: "Moved" });
+  expect(await titlesOf(w.provider.staff._id)).toEqual([
+    "New appointment: DEXA Scan · Mar 10, 9:00 AM",
+    "Appointment cancelled: DEXA Scan · Mar 10, 9:00 AM",
+  ]);
+  // The provider marks their own no-show: they are not told about their own flag.
+  const own = await w.api.post(
+    "/api/v1/appointments",
+    w.booking(member._id, "clinician-telehealth-visit", "13:00")
+  );
+  await as(w.provider.accessToken).patch(
+    `/api/v1/appointments/${own.body.data.appointment._id}/status`,
+    { status: "no_show" }
+  );
+  expect((await titlesOf(w.provider.staff._id)).filter((t) => t.startsWith("Member flag"))).toEqual(
+    []
+  );
+});

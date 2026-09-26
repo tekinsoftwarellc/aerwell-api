@@ -13,8 +13,14 @@ import { actor } from "../../common/http.js";
 import { audit } from "../audit/audit.js";
 import { STANDARD_DELIVERY } from "../entitlement/entitlement.types.js";
 import { memberTarget } from "../member/member.scope.js";
+import { appointmentChanged } from "../notification/producers.js";
 import { Service } from "../service/service.model.js";
-import { Appointment, AssessmentEpisode, LIVE_STATUSES } from "./appointment.model.js";
+import {
+  Appointment,
+  type AppointmentDocument,
+  AssessmentEpisode,
+  LIVE_STATUSES,
+} from "./appointment.model.js";
 import { lockedTransaction, paymentFields } from "./booking.service.js";
 import { ledger, memberLock } from "./ledger.service.js";
 import {
@@ -181,7 +187,8 @@ export async function memberEpisodes(req: Request) {
 export async function cancelEpisode(req: Request) {
   const initial = await episodeTarget(req);
   const reason = (req.body as { reason: string }).reason;
-  return lockedTransaction([memberLock(initial.memberId)], async (session) => {
+  let dropped: AppointmentDocument[] = [];
+  const cancelled = await lockedTransaction([memberLock(initial.memberId)], async (session) => {
     const episode = await AssessmentEpisode.findById(initial._id).session(session);
     if (episode?.status !== "open")
       throw new ConflictError("This assessment is no longer open", undefined, "EPISODE_NOT_OPEN");
@@ -198,8 +205,10 @@ export async function cancelEpisode(req: Request) {
       );
     const staff = actor(req);
     const now = new Date();
+    const live = { episodeId: episode._id, status: { $in: ["booked", "confirmed"] } };
+    dropped = await Appointment.find(live).session(session);
     await Appointment.updateMany(
-      { episodeId: episode._id, status: { $in: ["booked", "confirmed"] } },
+      live,
       {
         $set: {
           status: "cancelled",
@@ -236,4 +245,6 @@ export async function cancelEpisode(req: Request) {
     );
     return episode;
   });
+  for (const row of dropped) await appointmentChanged("appointment_cancelled", row, actor(req)._id);
+  return cancelled;
 }

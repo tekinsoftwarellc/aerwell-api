@@ -44,6 +44,8 @@ export interface Notice {
   staffIds?: unknown[];
   /** Also every active staff member holding this grant with scope "all". */
   audience?: Grant;
+  /** Used as the audience only when nobody else can receive the notice. */
+  fallback?: Grant;
   /** Also the roles of enabled NotificationRules for this trigger (in-app rules only). */
   rule?: RuleTrigger;
   /** Every recipient must hold all of these. */
@@ -54,6 +56,7 @@ export interface Notice {
   subjectStaffId?: unknown;
   dedupeKey?: string;
 }
+const TITLE_MAX = 200;
 type Recipient = { _id: unknown; permissions: EffectivePermissions };
 
 async function candidateIds(n: Notice): Promise<Set<string>> {
@@ -177,7 +180,7 @@ async function rows(n: Notice, people: Recipient[]) {
         recipientStaffId: person._id,
         kind: n.kind,
         category: n.category,
-        title: n.title,
+        title: n.title.length > TITLE_MAX ? `${n.title.slice(0, TITLE_MAX - 1)}…` : n.title,
         link: n.link ?? null,
         critical,
         deliverAfter: until ?? now,
@@ -195,7 +198,10 @@ async function rows(n: Notice, people: Recipient[]) {
 /** Deliver one event to its recipients. Returns rows written; never throws. */
 export async function notify(n: Notice): Promise<number> {
   try {
-    const docs = await rows(n, await recipients(n));
+    let people = await recipients(n);
+    if (!people.length && n.fallback)
+      people = await recipients({ ...n, staffIds: [], rule: undefined, audience: n.fallback });
+    const docs = await rows(n, people);
     if (!docs.length) return 0;
     try {
       return (await Notification.insertMany(docs, { ordered: false })).length;

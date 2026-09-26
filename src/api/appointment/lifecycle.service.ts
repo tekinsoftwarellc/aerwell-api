@@ -151,7 +151,7 @@ export async function changeStatus(req: Request) {
       return updated;
     }
   );
-  if (noShowFlag) await flagRaised(noShowFlag);
+  if (noShowFlag) await flagRaised(noShowFlag, actor(req)._id);
   return changed;
 }
 
