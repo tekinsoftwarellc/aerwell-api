@@ -83,11 +83,18 @@ export interface MembershipHolding {
   startedAt: Date;
   endsAt?: Date | null;
 }
+/**
+ * Server-loaded assessment episode (never client input). An allowance episode
+ * names the membership benefit that reserved it; a purchased episode (the
+ * bundle was quoted at a paid price) has no membership and sets `purchased`.
+ * fulfilledServiceIds = components already claimed by a live booking.
+ */
 export interface EpisodeContext {
   id: string;
   bundleServiceId: string;
-  membershipId: string;
-  benefitId: string;
+  membershipId: string | null;
+  benefitId: string | null;
+  purchased?: boolean;
   fulfilledServiceIds: string[];
 }
 export interface EntitlementRequest {

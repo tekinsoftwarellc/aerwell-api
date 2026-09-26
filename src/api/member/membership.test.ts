@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { createServer } from "../../server.js";
 import { ORG, client, idOf, memberRow, staffWith } from "../../test/memberFixture.js";
 import { staffFixture } from "../../test/staffFixture.js";
+import { AllowanceLedgerEntry } from "../appointment/appointment.model.js";
 import { AuditEvent } from "../audit/audit.js";
 import { MembershipPlan } from "../catalog/catalog.model.js";
 import { Service } from "../service/service.model.js";
@@ -126,14 +127,31 @@ describe("membership records", () => {
 });
 
 describe("benefits view", () => {
-  it("reports allowances with used = 0 (not tracked until the W6 ledger) and anniversary renewal", async () => {
-    await hold("aerwell-continuum");
+  it("reports used/remaining from the allowance ledger and anniversary renewal", async () => {
+    const holding = await hold("aerwell-continuum");
+    const assessmentId = (await Service.findOne({ slug: "advanced-assessment" }).lean())?._id;
+    const entry = (periodStart: string, status: string) => ({
+      organizationId: ORG,
+      memberId: member._id,
+      membershipId: holding.body.data._id,
+      planId: holding.body.data.planId,
+      benefitId: String(assessmentId),
+      serviceId: assessmentId,
+      periodStart: new Date(periodStart),
+      periodEnd: new Date("2027-01-15T08:00:00.000Z"),
+      status,
+      holding: status !== "released",
+    });
+    // Counted: reserved + consumed in the current period. Not counted: released, previous period.
+    await AllowanceLedgerEntry.create([
+      entry("2026-01-15T08:00:00.000Z", "reserved"),
+      entry("2026-01-15T08:00:00.000Z", "consumed"),
+      entry("2026-01-15T08:00:00.000Z", "released"),
+      entry("2025-01-15T08:00:00.000Z", "consumed"),
+    ]);
     const res = await admin.get(`/members/${idOf(member)}/benefits?at=2026-09-26T00:00:00.000Z`);
     expect(res.status).toBe(200);
-    expect(res.body.data.usage).toEqual({
-      tracked: false,
-      reason: "Usage is recorded by the appointment allowance ledger (W6); used is 0 until then.",
-    });
+    expect(res.body.data.usage.tracked).toBe(true);
     expect(res.body.data.clinicianChatAllowed).toBe(true);
     const [held] = res.body.data.memberships;
     const assessment = held.benefits.find(
@@ -141,8 +159,8 @@ describe("benefits view", () => {
     );
     expect(assessment).toMatchObject({
       includedQuantity: 4,
-      used: 0,
-      remaining: 4,
+      used: 2,
+      remaining: 2,
       periodStart: "2026-01-15T08:00:00.000Z",
       renewsAt: "2027-01-15T08:00:00.000Z",
     });

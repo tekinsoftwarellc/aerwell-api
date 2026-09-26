@@ -7,13 +7,14 @@ import {
   ValidationError,
 } from "../../common/errors/AppError.js";
 import { actor } from "../../common/http.js";
+import { Appointment, UPCOMING_STATUSES } from "../appointment/appointment.model.js";
 import { audit } from "../audit/audit.js";
 import { OrganizationSettings } from "../settings/settings.model.js";
 import { staffTarget } from "../staff/staff.service.js";
-import { organizationToday } from "./flags.js";
+import { organizationTimeZone, organizationToday } from "./flags.js";
 import { PtoBalance, PtoRequest, Shift } from "./schedule.model.js";
 import type { PTO_STATUSES } from "./schedule.schema.js";
-import { daysByYear } from "./time.js";
+import { addDays, daysByYear, localInstant } from "./time.js";
 import { scheduleAudit, schedulingTransaction } from "./transaction.js";
 
 const DEFAULT_ALLOWANCE_DAYS = 15;
@@ -35,16 +36,34 @@ export async function balance(
   return { year, allowanceDays, usedDays, remainingDays: allowanceDays - usedDays };
 }
 /**
- * Appointment seam: W6 returns the provider's booked appointments inside the range.
- * Until appointments exist there are none, so approvers see an empty list.
+ * The provider's live appointments on the requested local dates (organization
+ * time zone), so an approver sees who needs rebooking. Service title only: no
+ * member PHI reaches staff-records readers.
  */
-export function coverageConflicts(
-  _organizationId: string,
-  _staffId: string,
-  _from: string,
-  _toInclusive: string
-): Promise<{ startAt: string; description: string }[]> {
-  return Promise.resolve([]);
+export async function coverageConflicts(
+  organizationId: string,
+  staffId: string,
+  from: string,
+  toInclusive: string
+): Promise<{ appointmentId: string; startAt: string; description: string }[]> {
+  const tz = await organizationTimeZone(organizationId);
+  const rows = await Appointment.find({
+    organizationId,
+    providerId: staffId,
+    status: { $in: UPCOMING_STATUSES },
+    startAt: {
+      $gte: localInstant(from, "00:00", tz),
+      $lt: localInstant(addDays(toInclusive, 1), "00:00", tz),
+    },
+  })
+    .sort({ startAt: 1, _id: 1 })
+    .populate<{ serviceId: { title: string } | null }>("serviceId", "title")
+    .lean();
+  return rows.map((row) => ({
+    appointmentId: String(row._id),
+    startAt: row.startAt.toISOString(),
+    description: row.serviceId?.title ?? "Appointment",
+  }));
 }
 export async function listPto(req: Request, status?: (typeof PTO_STATUSES)[number]) {
   const organizationId = actor(req).organizationId;

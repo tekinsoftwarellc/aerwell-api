@@ -645,6 +645,32 @@ describe("review regressions", () => {
     const cancelled = { memberships: [hold("aerwell-essential", START, { status: "cancelled" })] };
     expect(ask("dexa-scan", [], { ...cancelled, episode }).decision).toBe("retail");
   });
+  it("a purchased (retail) episode covers its unclaimed components without any membership", () => {
+    const episode = {
+      id: "ep-retail",
+      bundleServiceId: "advanced-assessment",
+      membershipId: null,
+      benefitId: null,
+      purchased: true,
+      fulfilledServiceIds: ["dexa-scan"],
+    };
+    expect(ask("vo2-max-test", [], { episode })).toMatchObject({
+      decision: "episode_component",
+      finalCents: 0,
+      selection: { membershipId: null, benefitId: null },
+    });
+    expect(ask("assessment-clinician-review", [], { episode }).decision).toBe("episode_component");
+    expect(
+      ask("comprehensive-blood-panel", [], { episode, deliveryMethod: "mobile_phlebotomy" })
+    ).toMatchObject({ decision: "episode_component", finalCents: 12000 });
+    // Claimed components and services outside the bundle are priced normally.
+    expect(ask("dexa-scan", [], { episode }).decision).toBe("retail");
+    expect(ask("clinician-telehealth-visit", [], { episode }).decision).toBe("retail");
+    // Without the purchased marker a membership-less episode is ignored.
+    expect(ask("vo2-max-test", [], { episode: { ...episode, purchased: false } }).decision).toBe(
+      "retail"
+    );
+  });
   it("an unknown or inactive market makes every service unavailable; no market keeps all-market services", () => {
     const catalog = seedSnapshot();
     catalog.markets = catalog.markets.map((m) =>

@@ -7,10 +7,11 @@ import {
   ValidationError,
 } from "../../common/errors/AppError.js";
 import { actor } from "../../common/http.js";
+import { ledger } from "../appointment/ledger.service.js";
 import { audit } from "../audit/audit.js";
 import { MembershipPlan } from "../catalog/catalog.model.js";
 import type { MembershipHolding } from "../entitlement/entitlement.types.js";
-import { clinicianChatAllowed } from "../entitlement/evaluate.js";
+import { clinicianChatAllowed, usageKey } from "../entitlement/evaluate.js";
 import { benefitPeriod } from "../entitlement/period.js";
 import { loadCatalogSnapshot } from "../entitlement/snapshot.js";
 import { Service } from "../service/service.model.js";
@@ -20,6 +21,11 @@ import { memberTarget } from "./member.scope.js";
 export const USAGE_NOT_TRACKED = {
   tracked: false,
   reason: "Usage is recorded by the appointment allowance ledger (W6); used is 0 until then.",
+} as const;
+/** W6: used = units reserved or consumed in the allowance ledger for the current period. */
+export const USAGE_TRACKED = {
+  tracked: true,
+  reason: "Units reserved by a booking or consumed by a visit, from the allowance ledger.",
 } as const;
 const BRAND_LABELS: Record<string, string> = {
   aerwell: "Aerwell Member",
@@ -242,7 +248,7 @@ export async function patchMembership(req: Request) {
   }
 }
 
-/** Member Benefits view. `used` is a placeholder 0 until the W6 ledger exists. */
+/** Member Benefits view: used/remaining from the allowance ledger, renewal from the anniversary period. */
 export async function memberBenefits(req: Request) {
   const member = await memberTarget(req);
   const at = (req.query["at"] as Date | undefined) ?? new Date();
@@ -257,6 +263,15 @@ export async function memberBenefits(req: Request) {
     Service.find({ organizationId: member.organizationId }).select("title slug").lean(),
   ]);
   const serviceOf = new Map(services.map((s) => [String(s._id), s]));
+  const usage = await ledger.usage(
+    member.organizationId,
+    member._id,
+    current.map(toHolding),
+    snapshot.plans,
+    at,
+    {},
+    null
+  );
   const memberships = current.map((row) => {
     const plan = plans.find((p) => String(p._id) === String(row.planId));
     return {
@@ -276,6 +291,7 @@ export async function memberBenefits(req: Request) {
               )
             : null;
         const service = serviceOf.get(String(benefit.serviceId));
+        const used = period ? (usage[usageKey(String(row._id), benefit.id)] ?? 0) : null;
         return {
           benefitId: benefit.id,
           serviceId: String(benefit.serviceId),
@@ -293,8 +309,8 @@ export async function memberBenefits(req: Request) {
           },
           includedQuantity: benefit.includedQuantity,
           periodUnit: period ? (benefit.period?.unit ?? null) : null,
-          used: period ? 0 : null,
-          remaining: period ? benefit.includedQuantity : null,
+          used,
+          remaining: used === null ? null : Math.max(0, benefit.includedQuantity - used),
           periodStart: period?.start ?? null,
           renewsAt: period?.end ?? null,
           exhaustion: benefit.exhaustion,
@@ -305,7 +321,7 @@ export async function memberBenefits(req: Request) {
   await audit(req, "viewed", "MemberBenefits", String(member._id), String(member._id));
   return {
     at,
-    usage: USAGE_NOT_TRACKED,
+    usage: USAGE_TRACKED,
     clinicianChatAllowed: clinicianChatAllowed(snapshot.plans, rows.map(toHolding), at),
     memberships,
   };

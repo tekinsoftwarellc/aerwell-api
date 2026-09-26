@@ -6,6 +6,7 @@ import mongoSanitize from "express-mongo-sanitize";
 import helmet from "helmet";
 import hpp from "hpp";
 import swaggerUi from "swagger-ui-express";
+import { appointmentRouter } from "./api/appointment/appointment.router.js";
 import { createAuthRouter, meRouter } from "./api/auth/auth.router.js";
 import { webhookRouter } from "./api/billing/webhook.js";
 import { catalogRouter } from "./api/catalog/catalog.router.js";
@@ -56,6 +57,7 @@ export const createServer = (cache: CacheService = createCacheService()): Expres
   app.use("/api/v1", serviceRouter);
   app.use("/api/v1", catalogRouter);
   app.use("/api/v1", memberRouter);
+  app.use("/api/v1", appointmentRouter);
   app.use((_req, _res, next) => next(new NotFoundError("Route not found")));
   app.use(errorHandler);
   return app;

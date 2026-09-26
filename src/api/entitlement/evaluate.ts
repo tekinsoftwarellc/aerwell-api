@@ -183,14 +183,19 @@ function episodeOutcome(
   const episode = req.episode;
   if (!episode || episode.fulfilledServiceIds.includes(service.id)) return null;
   const bundle = catalog.services.find((s) => s.id === episode.bundleServiceId);
+  if (!bundle?.bundleComponentIds.includes(service.id)) return null;
+  if (episode.purchased && episode.membershipId === null)
+    return {
+      selection: { membershipId: null, planId: null, benefitId: null },
+      ok: true,
+      denialReason: null,
+      decision: "episode_component",
+      priceCents: 0,
+      allowance: null,
+    };
   const holder = candidates.find((c) => c.membership?.id === episode.membershipId);
   const benefit = holder?.plan?.benefits.find((b) => b.id === episode.benefitId);
-  if (
-    !(bundle?.bundleComponentIds.includes(service.id) && benefit) ||
-    benefit.serviceId !== bundle.id ||
-    benefit.access === "ineligible"
-  )
-    return null;
+  if (!benefit || benefit.serviceId !== bundle.id || benefit.access === "ineligible") return null;
   return {
     selection: {
       membershipId: episode.membershipId,

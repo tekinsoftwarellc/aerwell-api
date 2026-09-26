@@ -6,6 +6,7 @@ import {
   ForbiddenError,
   NotFoundError,
 } from "../../common/errors/AppError.js";
+import { Appointment, UPCOMING_STATUSES } from "../appointment/appointment.model.js";
 import { Market } from "../catalog/catalog.model.js";
 import { assertRetailFitsPlans } from "../catalog/catalog.service.js";
 import {
@@ -50,7 +51,13 @@ async function serialize(doc: InstanceType<typeof Service>) {
     ...value,
     id: String(_id),
     imageUrl: await serviceImageUrl(imageKey ?? undefined),
-    scheduledCount: 0,
+    // Upcoming live bookings (one count per row; ponytail: aggregate if pages grow past ~50).
+    scheduledCount: await Appointment.countDocuments({
+      organizationId: doc.organizationId,
+      serviceId: doc._id,
+      status: { $in: UPCOMING_STATUSES },
+      startAt: { $gte: new Date() },
+    }),
   };
 }
 async function validateCatalogLinks(organizationId: string, input: ServiceInput, selfId?: string) {
