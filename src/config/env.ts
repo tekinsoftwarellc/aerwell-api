@@ -34,7 +34,13 @@ export const envObject = z.object({
   BEDROCK_MODEL_FAST: z.string().startsWith("us.").optional(),
   BEDROCK_MODEL_SMART: z.string().startsWith("us.").optional(),
 });
-export const envSchema = envObject
+// A blank `KEY=` line (as copied from .env.example) means "unset", not an empty value.
+const withoutBlankValues = (input: unknown) =>
+  input && typeof input === "object"
+    ? Object.fromEntries(Object.entries(input).filter(([, value]) => value !== ""))
+    : input;
+
+const validatedEnv = envObject
   .refine((value) => value.NODE_ENV !== "production" || !value.CORS_ORIGIN.includes("*"), {
     path: ["CORS_ORIGIN"],
     message: "Production CORS must use explicit origins",
@@ -48,6 +54,7 @@ export const envSchema = envObject
     path: ["AERWELL_ORG_ID"],
     message: "Production requires the Aerwell organization id",
   });
+export const envSchema = z.preprocess(withoutBlankValues, validatedEnv);
 
 const parsed = envSchema.safeParse(process.env);
 if (!parsed.success) {

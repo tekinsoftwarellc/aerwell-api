@@ -10,6 +10,21 @@ const production = {
   AERWELL_ORG_ID: "org-prod",
 };
 describe("environment contract", () => {
+  it("treats blank keys copied from .env.example as unset", () => {
+    const blank = {
+      MONGODB_URI: "mongodb://127.0.0.1/test",
+      RATE_LIMIT_WINDOW_MS: "",
+      RATE_LIMIT_MAX: "",
+      ALFRED_API_INTERNAL_URL: "",
+      BEDROCK_MODEL_FAST: "",
+      AERWELL_ORG_ID: "",
+    };
+    const parsed = envSchema.parse(blank);
+    expect(parsed.RATE_LIMIT_MAX).toBe(100);
+    expect(parsed).not.toHaveProperty("ALFRED_API_INTERNAL_URL");
+    expect(parsed).not.toHaveProperty("BEDROCK_MODEL_FAST");
+    expect(envSchema.safeParse({ ...production, AERWELL_ORG_ID: "" }).success).toBe(false);
+  });
   it("requires a Mongo URI", () => {
     const result = envSchema.safeParse({});
     expect(result.success).toBe(false);
