@@ -1,5 +1,8 @@
 version: 0.0
 os: linux
+# The box dir may already hold files CodeDeploy did not place (a hand-run first
+# install). Overwrite only bundle files; .env is never in the bundle.
+file_exists_behavior: OVERWRITE
 
 files:
   - source: /

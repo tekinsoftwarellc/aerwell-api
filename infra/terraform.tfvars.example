@@ -1,0 +1,22 @@
+aws_region        = "us-east-1"
+project_name      = "aerwell-api"
+github_repository = "tekinsoftwarellc/aerwell-api"
+
+# The already-authorized connection aerwell-admin uses. It must be in aws_region.
+github_connection_arn = "arn:aws:codeconnections:us-east-1:123456789012:connection/REPLACE_ME"
+
+environments = {
+  dev = {
+    branch                = "dev"
+    instance_id           = "i-REPLACE_ME"
+    instance_profile_name = "REPLACE_ME"
+    # Verify the live tag first: aws ec2 describe-tags --filters Name=resource-id,Values=i-...
+    deploy_tag_key   = "CodeDeploy"
+    deploy_tag_value = "everhaus-api-dev"
+    admin_origin     = "https://d2p9e00qusbm7d.cloudfront.net"
+    # Optional: scope the instance policy document.
+    # app_s3_bucket     = "aerwell-dev-uploads"
+    # app_kms_key_arn   = "arn:aws:kms:us-east-1:123456789012:key/REPLACE_ME"
+    # ses_identity_arns = ["arn:aws:ses:us-east-1:123456789012:identity/example.com"]
+  }
+}

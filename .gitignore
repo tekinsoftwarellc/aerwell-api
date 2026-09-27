@@ -8,3 +8,8 @@ coverage/
 .DS_Store
 *.tfstate*
 *.tfplan
+**/.terraform/*
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+__pycache__/
