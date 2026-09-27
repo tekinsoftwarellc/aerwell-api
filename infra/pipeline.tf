@@ -64,8 +64,8 @@ resource "aws_codedeploy_deployment_group" "api" {
     enabled = true
     events  = ["DEPLOYMENT_FAILURE", "DEPLOYMENT_STOP_ON_REQUEST"]
   }
-  # data.aws_instances.tagged fails the plan unless the tag selects only this box.
-  depends_on = [aws_iam_role_policy_attachment.codedeploy, data.aws_instances.tagged]
+  # The data sources fail the plan unless the tag selects only this box.
+  depends_on = [aws_iam_role_policy_attachment.codedeploy, data.aws_instances.target, data.aws_instances.tagged]
 }
 
 resource "aws_codepipeline" "api" {

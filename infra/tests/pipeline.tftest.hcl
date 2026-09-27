@@ -18,16 +18,11 @@ mock_provider "aws" {
     defaults = { arn = "arn:aws:logs:us-east-1:123456789012:log-group:mock-group" }
   }
   mock_data "aws_caller_identity" {
-    defaults = { account_id = "123456789012" }
-  }
-  mock_data "aws_instance" {
-    defaults = { tags = { CodeDeploy = "everhaus-api-dev" }, iam_instance_profile = "box-profile" }
+    # The real account, so the committed aerwell-user-policy.json can be checked.
+    defaults = { account_id = "585239386213" }
   }
   mock_data "aws_instances" {
     defaults = { ids = ["i-0123456789abcdef0"] }
-  }
-  mock_data "aws_iam_instance_profile" {
-    defaults = { role_name = "box-role" }
   }
 }
 
@@ -38,8 +33,6 @@ variables {
       branch                = "dev"
       instance_id           = "i-0123456789abcdef0"
       instance_profile_name = "box-profile"
-      app_s3_bucket         = "aerwell-dev-uploads"
-      app_kms_key_arn       = "arn:aws:kms:us-east-1:123456789012:key/mock"
     }
   }
 }
@@ -83,14 +76,30 @@ run "pipeline_deploys_to_existing_tagged_instance" {
     error_message = "The artifact bucket must be private and protected on destroy."
   }
   assert {
-    condition = alltrue(flatten([for s in jsondecode(output.instance_policy_json["dev"]).Statement : [
-      for r in s.Resource : strcontains(r, "inference-profile/us.") || strcontains(r, "foundation-model/anthropic.")
-    ] if s.Sid == "AppBedrockUsProfiles"]))
-    error_message = "Bedrock grants must be limited to us. profiles and their models."
+    condition     = aws_iam_role_policy.instance_artifacts["dev"].role == "box-profile" && strcontains(aws_iam_role_policy.instance_artifacts["dev"].policy, "arn:aws:s3:::mock-bucket/aerwell-api-dev/*") && !strcontains(aws_iam_role_policy.instance_artifacts["dev"].policy, "s3:PutObject")
+    error_message = "The instance role gets read-only access to this pipeline's artifact prefix, on the profile's role."
   }
   assert {
-    condition     = length([for s in jsondecode(output.instance_policy_json["dev"]).Statement : s if contains(["AppUploads", "AppUploadsKms", "CodeDeployAgentRevisions"], s.Sid)]) == 3
-    error_message = "The instance policy must cover agent revisions, uploads and the KMS key."
+    condition     = aws_s3_bucket.uploads["dev"].bucket == "aerwell-api-dev-uploads-585239386213-us-east-1" && aws_s3_bucket_public_access_block.uploads["dev"].restrict_public_buckets && !aws_s3_bucket.uploads["dev"].force_destroy
+    error_message = "The uploads bucket must be private and protected on destroy."
+  }
+  assert {
+    condition     = one(aws_s3_bucket_server_side_encryption_configuration.uploads["dev"].rule).apply_server_side_encryption_by_default[0].sse_algorithm == "AES256"
+    error_message = "Uploads must be SSE-S3: the app presigns and verifies AES256."
+  }
+  assert {
+    condition     = one(aws_s3_bucket_cors_configuration.uploads["dev"].cors_rule).allowed_origins == toset(["https://d2p9e00qusbm7d.cloudfront.net"]) && contains(one(aws_s3_bucket_cors_configuration.uploads["dev"].cors_rule).allowed_methods, "PUT")
+    error_message = "Upload CORS must allow PUT from the admin origin only."
+  }
+  assert {
+    condition = alltrue(flatten([for st in jsondecode(output.aerwell_user_policy_json).Statement : [
+      for r in flatten([st.Resource]) : strcontains(r, "inference-profile/us.anthropic.") || (strcontains(r, "foundation-model/anthropic.") && can(st.Condition.StringLike["bedrock:InferenceProfileArn"]))
+    ] if startswith(st.Sid, "Bedrock")]))
+    error_message = "Bedrock grants must be us. profiles, and foundation models only through them."
+  }
+  assert {
+    condition     = strcontains(output.aerwell_user_policy_json, "arn:aws:s3:::aerwell-api-dev-uploads-585239386213-us-east-1/*") && !strcontains(output.aerwell_user_policy_json, "s3:*") && !strcontains(output.aerwell_user_policy_json, "kms:")
+    error_message = "The aerwell user policy must be scoped to the uploads bucket this configuration creates."
   }
   assert {
     condition     = strcontains(output.deployments["dev"].box_env_expects, "https://d2p9e00qusbm7d.cloudfront.net")
@@ -107,21 +116,24 @@ run "refuse_tag_that_selects_other_instances" {
   expect_failures = [data.aws_instances.tagged]
 }
 
-run "refuse_instance_without_tag" {
+run "refuse_instance_without_tag_or_profile" {
   command = plan
   override_data {
-    target = data.aws_instance.target["dev"]
-    values = { tags = {}, iam_instance_profile = "box-profile" }
+    target = data.aws_instances.target["dev"]
+    values = { ids = [] }
   }
-  expect_failures = [data.aws_instance.target]
+  expect_failures = [data.aws_instances.target]
 }
 
-run "reject_non_us_bedrock_profile" {
+run "explicit_instance_role_name" {
   command = plan
   variables {
-    environments = { dev = { branch = "dev", instance_id = "i-0123456789abcdef0", instance_profile_name = "box-profile", bedrock_model_ids = ["anthropic.claude-sonnet-5"] } }
+    environments = { dev = { branch = "dev", instance_id = "i-0123456789abcdef0", instance_profile_name = "box-profile", instance_role_name = "box-role" } }
   }
-  expect_failures = [var.environments]
+  assert {
+    condition     = aws_iam_role_policy.instance_artifacts["dev"].role == "box-role"
+    error_message = "instance_role_name must override the profile name."
+  }
 }
 
 run "create_connection_when_missing" {

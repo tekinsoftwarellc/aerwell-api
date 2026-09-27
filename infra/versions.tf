@@ -26,3 +26,16 @@ locals {
   # CodePipeline stores artifacts under the pipeline name truncated to 20 characters.
   artifact_prefix = { for env, name in local.names : env => substr(name, 0, 20) }
 }
+
+# Committed file, attached by hand to IAM user aerwell. Warn if it drifts from the
+# uploads bucket Terraform creates.
+locals {
+  aerwell_user_policy = file("${path.module}/aerwell-user-policy.json")
+}
+
+check "aerwell_user_policy_matches_uploads_bucket" {
+  assert {
+    condition     = alltrue([for env in keys(var.environments) : strcontains(local.aerwell_user_policy, "arn:aws:s3:::${local.names[env]}-uploads-${local.account_id}-${var.aws_region}/*")])
+    error_message = "aerwell-user-policy.json does not grant the uploads bucket(s) this configuration creates; update the file."
+  }
+}

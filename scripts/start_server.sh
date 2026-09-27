@@ -22,7 +22,10 @@ STRIP=(-u NODE_ENV -u PORT -u HOST -u MONGODB_URI -u CORS_ORIGIN
   -u ALFRED_AUTH_CLIENT_SECRET -u STAFF_JWT_SECRET -u AWS_REGION -u AWS_S3_BUCKET
   -u SES_FROM_EMAIL -u ADMIN_BASE_URL -u AERWELL_ORG_ID -u STRIPE_SECRET_KEY
   -u STRIPE_PUBLISHABLE_KEY -u STRIPE_WEBHOOK_SECRET -u TRANSCRIBE_REGION
-  -u BEDROCK_REGION -u BEDROCK_MODEL_FAST -u BEDROCK_MODEL_SMART )
+  -u BEDROCK_REGION -u BEDROCK_MODEL_FAST -u BEDROCK_MODEL_SMART
+  # The app's AWS principal is IAM user aerwell (keys in the .env). An inherited
+  # key or profile (the box also runs everhaus-api/alfred-api) would win silently.
+  -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN -u AWS_PROFILE )
 # Indexes BEFORE traffic: webhook dedupe and booking idempotency rely on unique indexes.
 env "${STRIP[@]}" npm run db:sync-indexes
 # --kill-timeout: SIGINT drains live visit captures (flush + save) before exit.

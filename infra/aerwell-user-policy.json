@@ -1,0 +1,58 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "UploadsObjects",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:GetObject"],
+      "Resource": "arn:aws:s3:::aerwell-api-dev-uploads-585239386213-us-east-1/*"
+    },
+    {
+      "Sid": "UploadsList",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::aerwell-api-dev-uploads-585239386213-us-east-1"
+    },
+    {
+      "Sid": "Email",
+      "Effect": "Allow",
+      "Action": "ses:SendEmail",
+      "Resource": "arn:aws:ses:us-east-1:585239386213:identity/*"
+    },
+    {
+      "Sid": "TranscribeMedicalStreaming",
+      "Effect": "Allow",
+      "Action": [
+        "transcribe:StartMedicalStreamTranscription",
+        "transcribe:StartMedicalStreamTranscriptionWebSocket"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "BedrockUsInferenceProfiles",
+      "Effect": "Allow",
+      "Action": ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
+      "Resource": [
+        "arn:aws:bedrock:us-east-1:585239386213:inference-profile/us.anthropic.claude-haiku-4-5*",
+        "arn:aws:bedrock:us-east-1:585239386213:inference-profile/us.anthropic.claude-sonnet-5*"
+      ]
+    },
+    {
+      "Sid": "BedrockFoundationModelsOnlyViaUsProfiles",
+      "Effect": "Allow",
+      "Action": ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
+      "Resource": [
+        "arn:aws:bedrock:us-*::foundation-model/anthropic.claude-haiku-4-5*",
+        "arn:aws:bedrock:us-*::foundation-model/anthropic.claude-sonnet-5*"
+      ],
+      "Condition": {
+        "StringLike": {
+          "bedrock:InferenceProfileArn": [
+            "arn:aws:bedrock:us-east-1:585239386213:inference-profile/us.anthropic.claude-haiku-4-5*",
+            "arn:aws:bedrock:us-east-1:585239386213:inference-profile/us.anthropic.claude-sonnet-5*"
+          ]
+        }
+      }
+    }
+  ]
+}

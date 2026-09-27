@@ -2,9 +2,8 @@
 
 Terraform for deploying this API to an **already-built EC2 instance**. It follows
 the same conventions as `aerwell-admin/infra`: region `us-east-1`, the same
-CodeConnections pattern, V2 queued pipelines, per-environment map, SSE-S3
-artifact bucket, local state, and mock `terraform test`. It replaces the earlier
-CloudFormation draft (`infra/codepipeline-ec2.yml`).
+CodeConnections connection, V2 queued pipelines, per-environment map, SSE-S3
+buckets, local state, the `tf.py` launcher, and mock `terraform test`.
 
 ```text
 GitHub push to the env branch (dev)
@@ -19,11 +18,22 @@ GitHub push to the env branch (dev)
   → any failure → automatic rollback to the last good revision
 ```
 
-App dir on the box: `/home/ubuntu/aerwell-api`. Terraform **never creates, modifies
-or replaces the instance**. It only reads it, and the plan fails if:
+App dir on the box: `/home/ubuntu/aerwell-api`.
 
-- the instance lacks the CodeDeploy tag,
-- `instance_profile_name` is not the profile attached to it, or
+**Target: the shared Everhaus dev box** `i-08b21c52d96827f7d` (t3.small, Name
+`Everhaus-API (dev)`, tag `CodeDeploy=everhaus-api-dev`, instance profile
+`EC2-WITH-CODE-PIPELINE`, CodeDeploy agent already installed). It also runs
+everhaus-api (:3000) and alfred-api (:3002) under pm2; Aerwell uses **:3003**
+(alfred-auth's default :3001 is also clear). Risk: a t3.small has 2 GiB for three
+Node apps, pm2 and the agent; check `free -m` and `pm2 monit` after the first deploy.
+
+Terraform **never creates, modifies or replaces the instance**. It only reads it with
+`ec2:DescribeInstances` (the plan principal, IAM user `alfred`, is denied
+`ec2:DescribeInstanceTypes`, which `data "aws_instance"` needs, and all IAM reads).
+The plan fails if:
+
+- the instance id, the CodeDeploy tag and the attached instance profile
+  (`instance_profile_name`, no IAM path) do not all match, or
 - the tag selects any other instance too (CodeDeploy deploys to every tagged instance).
 
 It also never writes the box `.env`. `start_server.sh` exits non-zero if
@@ -33,79 +43,108 @@ It also never writes the box `.env`. `start_server.sh` exits non-zero if
 
 Per environment: CodeBuild project, log group, CodeDeploy application and
 deployment group (auto-rollback on `DEPLOYMENT_FAILURE` and `DEPLOYMENT_STOP_ON_REQUEST`),
-pipeline, and the build and pipeline IAM roles. Shared: the artifact bucket
-(private, SSE-S3, versioned, TLS-only), the CodeDeploy service role
-(`AWSCodeDeployRole`), and a GitHub connection only if you pass no ARN.
+pipeline, the build and pipeline IAM roles, the **uploads bucket**, and one inline
+policy on the box's instance role. Shared: the artifact bucket (private, SSE-S3,
+versioned, TLS-only), the CodeDeploy service role (`AWSCodeDeployRole`), and a
+GitHub connection only if you pass no ARN.
 
 IAM scope:
 
 - The build role can use logs and its own artifact prefix only. It has no deploy permissions.
 - The pipeline role can use the connection, its artifact prefix, its build project, its CodeDeploy application and group, and the deployment config.
+- **Instance role** (`instance_role_name`, default = `instance_profile_name`): inline policy
+  `aerwell-api-<env>-codedeploy-artifacts`, `s3:GetObject(Version)` on this pipeline's
+  artifact prefix only, so the CodeDeploy agent can fetch revisions. Whether the role
+  already could is unknown (IAM reads are denied to `alfred`). Terraform owns only this
+  named policy, never the role. A wrong role name fails the apply with `NoSuchEntity`.
 
-## Instance policy (attach by hand; nothing is attached by Terraform)
+### Uploads bucket
 
-`terraform output -json instance_policy_json` gives one policy per environment:
+`aerwell-api-dev-uploads-585239386213-us-east-1` (output `deployments.dev.uploads_bucket`,
+goes in `AWS_S3_BUCKET`): public access blocked, SSE-S3 (the app presigns uploads with
+`x-amz-server-side-encryption: AES256` and rejects anything else on verify, so not KMS),
+versioned, TLS-only, CORS `PUT`/`GET`/`HEAD` from the admin origin only.
 
-| Sid | Grants | For |
+## App principal: IAM user `aerwell`
+
+The app authenticates with access keys of IAM user **`aerwell`**, created by hand, in
+the box `.env`. Terraform creates and attaches nothing for it.
+
+1. Create user `aerwell` (no console access). Attach `infra/aerwell-user-policy.json`
+   (same text as `terraform output -raw aerwell_user_policy_json`; a `check` block warns
+   at plan if it no longer names the uploads bucket Terraform creates).
+2. Create one access key and put `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` in
+   `/home/ubuntu/aerwell-api/.env`. `start_server.sh` strips inherited `AWS_ACCESS_KEY_ID`,
+   `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` and `AWS_PROFILE`, so another app's keys
+   on the shared box cannot win.
+3. Verify the running principal in-process (`sts:GetCallerIdentity` with the app's env,
+   printing only the ARN). It must be `arn:aws:iam::585239386213:user/aerwell`.
+
+| Sid | Grants | Used by |
 |---|---|---|
-| `CodeDeployAgentRevisions` | `s3:GetObject(Version)` on this pipeline's artifact prefix | CodeDeploy agent |
-| `CodeDeployAgentUpdates` | `s3:GetObject` on `aws-codedeploy-us-east-1` | CodeDeploy agent self-update |
-| `AppUploads` / `AppUploadsKms` | Put/Get on `app_s3_bucket`; `kms:GenerateDataKey`/`Decrypt` on `app_kms_key_arn` (only when set) | uploads (SSE-KMS) |
-| `AppEmail` | `ses:SendEmail` on `ses_identity_arns` (only when set) | invites, reset, 2FA |
-| `AppTranscribeMedical` | `transcribe:StartMedicalStreamTranscription(WebSocket)` | live visits |
-| `AppBedrockUsProfiles` | `bedrock:InvokeModel` on the `us.` inference profiles and their `us-*` foundation models | Alfred, next steps |
+| `UploadsObjects` / `UploadsList` | `s3:PutObject`, `s3:GetObject` (also HeadObject) on the bucket; `s3:ListBucket` | presigned uploads/downloads, verify |
+| `Email` | `ses:SendEmail` on `identity/*` in us-east-1 | invites, reset, 2FA. The `SES_FROM_EMAIL` identity is unknown; narrow the ARN once it is. |
+| `TranscribeMedicalStreaming` | `transcribe:StartMedicalStreamTranscription(WebSocket)` | live visits (the action takes no resource) |
+| `BedrockUsInferenceProfiles` | `bedrock:InvokeModel(WithResponseStream)` on `us.anthropic.claude-haiku-4-5*` / `us.anthropic.claude-sonnet-5*` profiles | Converse (Alfred, next steps) |
+| `BedrockFoundationModelsOnlyViaUsProfiles` | same actions on `us-*` foundation models, only when called through those profiles | cross-region routing |
 
-**Verify the principal first.** The CodeDeploy agent uses the instance profile. The
-**app** may run as a different principal: in 2026-09 a grant went to IAM user `alfred`
-while the app ran as `everhaus`. Before attaching the `App*` statements, resolve the
-app's principal in-process with `sts:GetCallerIdentity` using the box env, printing
-only the account and ARN. If it is not the instance role, attach the `App*`
-statements to that principal instead.
+The routing regions of the `us.` profiles could not be read (`bedrock:GetInferenceProfile`
+is denied to `alfred`), so the foundation-model ARNs use `us-*`; the
+`bedrock:InferenceProfileArn` condition keeps direct in-region invocation denied.
 
-```bash
-terraform -chdir=infra output -json instance_policy_json | python3 -c 'import json,sys; print(json.load(sys.stdin)["dev"])' > /tmp/aerwell-api-dev-instance.json
-aws iam put-role-policy --role-name "$(terraform -chdir=infra output -json deployments | python3 -c 'import json,sys; print(json.load(sys.stdin)["dev"]["instance_role"])')" \
-  --policy-name aerwell-api-dev --policy-document file:///tmp/aerwell-api-dev-instance.json
-```
+### Box `.env` names
+
+Known values: `NODE_ENV=production`, `PORT=3003`, `HOST=0.0.0.0`, `AWS_REGION=us-east-1`,
+`AWS_S3_BUCKET=aerwell-api-dev-uploads-585239386213-us-east-1`,
+`CORS_ORIGIN=https://d2p9e00qusbm7d.cloudfront.net`,
+`ADMIN_BASE_URL=https://d2p9e00qusbm7d.cloudfront.net`, `TRANSCRIBE_REGION=us-east-1`,
+`BEDROCK_REGION=us-east-1`, `BEDROCK_MODEL_FAST=us.anthropic.claude-haiku-4-5…`,
+`BEDROCK_MODEL_SMART=us.anthropic.claude-sonnet-5…` (exact profile ids: [USER]).
+
+[USER] values: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` (user `aerwell`), `MONGODB_URI`,
+`STAFF_JWT_SECRET` (32+ chars), `AERWELL_ORG_ID`, `SES_FROM_EMAIL`, `RATE_LIMIT_WINDOW_MS`,
+`RATE_LIMIT_MAX`; optional `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`,
+`STRIPE_WEBHOOK_SECRET`, `ALFRED_API_INTERNAL_URL`, `ALFRED_AUTH_URL`,
+`ALFRED_AUTH_JWKS_URL`, `ALFRED_AUTH_CLIENT_ID`, `ALFRED_AUTH_CLIENT_SECRET`; seed-only
+`SEED_SUPER_ADMIN_EMAIL`, `SEED_SUPER_ADMIN_PASSWORD`, `SEED_SUPER_ADMIN_FIRST_NAME`,
+`SEED_SUPER_ADMIN_LAST_NAME`.
 
 ## [USER] prerequisites (before the first apply / pipeline run)
 
-1. Create the private GitHub repo `tekinsoftwarellc/aerwell-api` and push `dev`
-   (with this `infra/`, `appspec.yml`, `buildspec.yml`, `scripts/`). Authorize the
-   existing CodeConnections connection for that repo, and pass its ARN.
-2. Confirm the instance id, its instance profile name, and its **live** CodeDeploy tag.
-   The default `CodeDeploy=everhaus-api-dev` was never verified. Check with
-   `aws ec2 describe-tags --filters Name=resource-id,Values=<instance-id>`.
-3. Install and run the CodeDeploy agent on the instance: `systemctl status codedeploy-agent`.
-4. Install Node 22 and pm2 on the box for user `ubuntu` (the hooks run `npm` and `pm2` as `ubuntu`).
-5. Create `/home/ubuntu/aerwell-api/.env` (owner `ubuntu`, mode 600) from `.env.example`.
-   See `aerwell-spec/DEPLOY-RUNBOOK.md` §2.2 for the key names. It must have:
-   - `CORS_ORIGIN` including `https://d2p9e00qusbm7d.cloudfront.net`
-   - `ADMIN_BASE_URL=https://d2p9e00qusbm7d.cloudfront.net`
-   - `PORT=3003`, because the health check probes 3003
-
-   Never print it. The only allowed check is `grep -c '^NAME=' /home/ubuntu/aerwell-api/.env`.
-6. Attach the instance policy above, after verifying the app's principal.
-7. On the database, run `npm run db:sync-indexes` by hand once before the first pipeline
+1. Repo `tekinsoftwarellc/aerwell-api` exists with `dev` pushed. Authorize the existing
+   CodeConnections connection (the one aerwell-admin uses) for this repo.
+2. **Give `alfred` apply permissions.** Its `AerwellTerraformProvisioner` policy is scoped
+   to `aerwell-admin-*`, so the plan works but the apply would be denied. Attach
+   `infra/policies/terraform-provisioner.json` (same shape, `aerwell-api-*`, plus CodeDeploy,
+   `iam:PassRole` to CodeDeploy, and `Put/Get/DeleteRolePolicy` on `EC2-WITH-CODE-PIPELINE`)
+   with admin credentials. Note: `iam:PutRolePolicy` on the box role lets `alfred` write any
+   inline policy there; if that is unacceptable, remove that statement and attach
+   `aws_iam_role_policy.instance_artifacts` by hand instead.
+3. Confirm the role inside `EC2-WITH-CODE-PIPELINE` is named the same (else set `instance_role_name`).
+4. Node 22 and pm2 for `ubuntu` on the box (already there for the other apps; check `node -v`).
+5. Create IAM user `aerwell` and its key (above), then `/home/ubuntu/aerwell-api/.env`
+   (owner `ubuntu`, mode 600). Never print it; the only allowed check is
+   `grep -c '^NAME=' /home/ubuntu/aerwell-api/.env`.
+6. On the database, run `npm run db:sync-indexes` by hand once before the first pipeline
    run against an existing database (runbook §3). A fresh database does not need it.
-8. Deploy outside visit hours. The first deploy after W11 does not drain.
+7. Deploy outside visit hours. The first deploy after W11 does not drain.
 
-## Plan / apply (the user runs these; nothing here has been applied)
+## Plan / apply (the user runs apply; nothing here has been applied)
 
-Run from the repo root. Use AWS credentials from your shell or `AWS_PROFILE`, never
-from Terraform variables. The account is the one aerwell-admin uses.
+Credentials come from profile `alfred-infra`, never from Terraform variables.
+`infra/tf.py` (same as aerwell-admin's) loads `infra/.env` without a shell; copy
+`infra/.env.example` and use the admin's `AWS_PROFILE` and `TF_VAR_github_connection_arn`.
+`infra/terraform.tfvars` holds the rest (copy `terraform.tfvars.example`). Both are git-ignored.
 
 ```bash
-cp infra/terraform.tfvars.example infra/terraform.tfvars   # git-ignored; fill in the REPLACE_ME values
-terraform -chdir=infra init
-terraform -chdir=infra plan -out=deploy.tfplan
-terraform -chdir=infra apply deploy.tfplan
-terraform -chdir=infra output deployments
+python3 infra/tf.py init
+python3 infra/tf.py plan -out=deploy.tfplan
+python3 infra/tf.py apply deploy.tfplan
+python3 infra/tf.py output deployments
 ```
 
-The pipeline starts once on creation. It fails at Source until the repo exists and the
-connection is authorized; retry it after that. Terraform is not run by the pipeline.
-Changes to branch mappings, tags or IAM need another plan/apply.
+The pipeline starts once on creation. It fails at Source until the connection is
+authorized for the repo; retry it after that. Terraform is not run by the pipeline.
 
 State is local (`infra/terraform.tfstate`, git-ignored). It can hold sensitive values,
 so keep it private and never print it. To migrate to an S3 backend, see
@@ -124,12 +163,14 @@ The mock tests check the plan without contacting AWS:
 
 - the CodeDeploy target and auto-rollback,
 - IAM scoping,
-- that only `us.` Bedrock profiles are allowed,
-- that the plan refuses an untagged or ambiguous target.
+- that the aerwell user policy names the uploads bucket and allows Bedrock only through `us.` profiles,
+- the uploads bucket (private, SSE-S3, admin-only CORS) and the instance-role inline policy,
+- that the plan refuses an untagged, wrong-profile or ambiguous target.
 
 The Python tests run `start_server.sh` against stub `npm`/`pm2`. They check that a
 missing `.env` fails before anything runs, that indexes sync before pm2 starts, that
-pm2 runs one instance with a 50 s kill timeout, and that no hook sources or writes the `.env`.
+pm2 runs one instance with a 50 s kill timeout, that inherited app env and AWS
+credentials never reach the index sync or pm2, and that no hook sources or writes the `.env`.
 
 ## Rollback and teardown
 

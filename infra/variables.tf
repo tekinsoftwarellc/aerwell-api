@@ -38,19 +38,19 @@ variable "environments" {
     One pipeline + CodeDeploy group per key, deploying to an EXISTING instance.
     Terraform only reads the instance (data sources); it never creates or replaces it.
     The deployment group targets the tag; the plan fails unless exactly that one
-    running instance carries it. app_* values scope the instance policy document.
+    instance carries it and has instance_profile_name (no IAM path) attached.
+    instance_role_name is the role inside that profile (default: same name, the
+    console convention). The plan principal cannot read IAM, so it is not verified
+    at plan; a wrong name fails the apply with NoSuchEntity.
   EOT
   type = map(object({
     branch                = string
     instance_id           = string
     instance_profile_name = string
+    instance_role_name    = optional(string)
     deploy_tag_key        = optional(string, "CodeDeploy")
     deploy_tag_value      = optional(string, "everhaus-api-dev")
     admin_origin          = optional(string, "https://d2p9e00qusbm7d.cloudfront.net")
-    app_s3_bucket         = optional(string)
-    app_kms_key_arn       = optional(string)
-    ses_identity_arns     = optional(list(string), [])
-    bedrock_model_ids     = optional(list(string), ["us.anthropic.claude-haiku-4-5", "us.anthropic.claude-sonnet-5"])
   }))
   validation {
     condition = length(var.environments) > 0 && alltrue([
@@ -65,10 +65,6 @@ variable "environments" {
   validation {
     condition     = alltrue([for config in values(var.environments) : can(regex("^https://[^/,*]+$", config.admin_origin))])
     error_message = "admin_origin must be one https origin with no path, comma or wildcard."
-  }
-  validation {
-    condition     = alltrue(flatten([for config in values(var.environments) : [for id in config.bedrock_model_ids : startswith(id, "us.")]]))
-    error_message = "Bedrock model ids must be us. inference profiles (BAA)."
   }
 }
 

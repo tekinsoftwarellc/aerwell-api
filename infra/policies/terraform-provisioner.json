@@ -1,0 +1,199 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ManageProjectBuckets",
+      "Effect": "Allow",
+      "Action": [
+        "s3:CreateBucket",
+        "s3:DeleteBucket",
+        "s3:GetBucket*",
+        "s3:ListBucket",
+        "s3:ListBucketVersions",
+        "s3:ListBucketMultipartUploads",
+        "s3:GetEncryptionConfiguration",
+        "s3:GetLifecycleConfiguration",
+        "s3:GetReplicationConfiguration",
+        "s3:GetAccelerateConfiguration",
+        "s3:PutBucketTagging",
+        "s3:PutBucketPolicy",
+        "s3:DeleteBucketPolicy",
+        "s3:PutBucketVersioning",
+        "s3:PutBucketPublicAccessBlock",
+        "s3:PutBucketOwnershipControls",
+        "s3:PutEncryptionConfiguration",
+        "s3:PutLifecycleConfiguration",
+        "s3:PutBucketCORS"
+      ],
+      "Resource": "arn:aws:s3:::aerwell-api-*-585239386213-us-east-1"
+    },
+    {
+      "Sid": "EmptyProjectBucketsOnIntentionalDestroy",
+      "Effect": "Allow",
+      "Action": [
+        "s3:DeleteObject",
+        "s3:DeleteObjectVersion",
+        "s3:AbortMultipartUpload"
+      ],
+      "Resource": "arn:aws:s3:::aerwell-api-*-585239386213-us-east-1/*"
+    },
+    {
+      "Sid": "ManageProjectServiceRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole",
+        "iam:GetRole",
+        "iam:DeleteRole",
+        "iam:UpdateRole",
+        "iam:UpdateRoleDescription",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:ListRoleTags",
+        "iam:ListRolePolicies",
+        "iam:GetRolePolicy",
+        "iam:PutRolePolicy",
+        "iam:DeleteRolePolicy",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListInstanceProfilesForRole"
+      ],
+      "Resource": "arn:aws:iam::585239386213:role/aerwell-api-*"
+    },
+    {
+      "Sid": "AttachCodeDeployServicePolicy",
+      "Effect": "Allow",
+      "Action": [
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy"
+      ],
+      "Resource": "arn:aws:iam::585239386213:role/aerwell-api-*",
+      "Condition": {
+        "ArnEquals": {
+          "iam:PolicyARN": "arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole"
+        }
+      }
+    },
+    {
+      "Sid": "PassProjectRolesToPipelineServices",
+      "Effect": "Allow",
+      "Action": [
+        "iam:PassRole"
+      ],
+      "Resource": "arn:aws:iam::585239386213:role/aerwell-api-*",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": [
+            "codebuild.amazonaws.com",
+            "codepipeline.amazonaws.com",
+            "codedeploy.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ManageBoxRoleArtifactReadPolicy",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRolePolicy",
+        "iam:PutRolePolicy",
+        "iam:DeleteRolePolicy"
+      ],
+      "Resource": "arn:aws:iam::585239386213:role/EC2-WITH-CODE-PIPELINE"
+    },
+    {
+      "Sid": "ReadTargetInstance",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DescribeInstances"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DiscoverLogGroups",
+      "Effect": "Allow",
+      "Action": [
+        "logs:DescribeLogGroups"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ManageProjectLogGroups",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:DeleteLogGroup",
+        "logs:PutRetentionPolicy",
+        "logs:DeleteRetentionPolicy",
+        "logs:ListTagsForResource",
+        "logs:TagResource",
+        "logs:UntagResource",
+        "logs:ListTagsLogGroup",
+        "logs:TagLogGroup",
+        "logs:UntagLogGroup"
+      ],
+      "Resource": [
+        "arn:aws:logs:us-east-1:585239386213:log-group:/aws/codebuild/aerwell-api-*",
+        "arn:aws:logs:us-east-1:585239386213:log-group:/aws/codebuild/aerwell-api-*:*"
+      ]
+    },
+    {
+      "Sid": "ManageProjectBuildProjects",
+      "Effect": "Allow",
+      "Action": [
+        "codebuild:CreateProject",
+        "codebuild:BatchGetProjects",
+        "codebuild:UpdateProject",
+        "codebuild:DeleteProject"
+      ],
+      "Resource": "arn:aws:codebuild:us-east-1:585239386213:project/aerwell-api-*"
+    },
+    {
+      "Sid": "ManageProjectPipelines",
+      "Effect": "Allow",
+      "Action": [
+        "codepipeline:CreatePipeline",
+        "codepipeline:GetPipeline",
+        "codepipeline:GetPipelineState",
+        "codepipeline:UpdatePipeline",
+        "codepipeline:DeletePipeline",
+        "codepipeline:ListTagsForResource",
+        "codepipeline:TagResource",
+        "codepipeline:UntagResource"
+      ],
+      "Resource": "arn:aws:codepipeline:us-east-1:585239386213:aerwell-api-*"
+    },
+    {
+      "Sid": "ManageProjectCodeDeploy",
+      "Effect": "Allow",
+      "Action": [
+        "codedeploy:CreateApplication",
+        "codedeploy:GetApplication",
+        "codedeploy:DeleteApplication",
+        "codedeploy:CreateDeploymentGroup",
+        "codedeploy:GetDeploymentGroup",
+        "codedeploy:UpdateDeploymentGroup",
+        "codedeploy:DeleteDeploymentGroup",
+        "codedeploy:ListTagsForResource",
+        "codedeploy:TagResource",
+        "codedeploy:UntagResource"
+      ],
+      "Resource": [
+        "arn:aws:codedeploy:us-east-1:585239386213:application:aerwell-api-*",
+        "arn:aws:codedeploy:us-east-1:585239386213:deploymentgroup:aerwell-api-*/*"
+      ]
+    },
+    {
+      "Sid": "ReuseExistingGitHubConnection",
+      "Effect": "Allow",
+      "Action": [
+        "codestar-connections:GetConnection",
+        "codestar-connections:PassConnection",
+        "codestar-connections:UseConnection",
+        "codeconnections:GetConnection",
+        "codeconnections:PassConnection",
+        "codeconnections:UseConnection"
+      ],
+      "Resource": "arn:aws:codestar-connections:us-east-1:585239386213:connection/7e20c262-522a-4ac5-a0f2-482fc5feb6fc"
+    }
+  ]
+}

@@ -25,13 +25,17 @@ class StartServerTests(unittest.TestCase):
             for tool in ("npm", "pm2"):
                 stub = bin_dir / tool
                 # `pm2 describe` fails: no existing process on a first deploy.
+                # Record inherited values that reach the app (index sync, pm2 start).
                 stub.write_text(f'#!/bin/sh\necho "{tool} $*" >> "{log}"\n'
+                                f'case "$1" in run|start) env | grep -E "^(MONGODB_URI|AWS_ACCESS_KEY_ID|AWS_PROFILE)=" | cut -d= -f1 >> "{root / "leaks.log"}";; esac\n'
                                 f'[ "{tool} $1" = "pm2 describe" ] && exit 1\nexit 0\n')
                 stub.chmod(0o755)
             env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
-                   "MONGODB_URI": "mongodb://shell-value-must-not-leak"}
+                   "MONGODB_URI": "mongodb://shell-value-must-not-leak",
+                   "AWS_ACCESS_KEY_ID": "AKIASHELLVALUE", "AWS_PROFILE": "shell-profile"}
             result = subprocess.run(["bash", str(script)], env=env, capture_output=True, text=True)
             calls = log.read_text().splitlines() if log.exists() else []
+            self.leaks = (root / "leaks.log").read_text().split() if (root / "leaks.log").exists() else []
             return result, calls
 
     def test_missing_env_file_fails_before_touching_the_app(self):
@@ -50,6 +54,11 @@ class StartServerTests(unittest.TestCase):
         self.assertIn("--kill-timeout=50000", start)
         self.assertNotIn(" -i ", f" {start} ")  # fork mode, exactly one instance
         self.assertEqual(calls[-1], "pm2 save")
+
+    def test_inherited_app_env_and_aws_credentials_never_reach_npm_or_pm2(self):
+        result, _ = self.run_start(with_env_file=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.leaks, [])
 
     def test_env_file_is_never_written_by_hooks(self):
         for name in ("start_server.sh", "stop_server.sh", "prepare_app_dir.sh", "validate_service.sh"):
