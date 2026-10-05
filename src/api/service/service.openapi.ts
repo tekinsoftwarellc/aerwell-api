@@ -12,7 +12,6 @@ const fields = {
     description:
       "Stable identifier; set on create (generated from title if omitted), never patched",
   },
-  owner: { type: "string", enum: ["aerwell", "everhaus"], default: "aerwell" },
   modality: { type: "string", enum: ["physical", "virtual"], default: "physical" },
   marketScope: {
     type: "string",
@@ -141,7 +140,6 @@ export const servicePaths = {
           { in: "query", name: "q", schema: { type: "string", maxLength: 160 } },
           { in: "query", name: "status", schema: fields.status },
           { in: "query", name: "categoryId", schema: id },
-          { in: "query", name: "owner", schema: fields.owner },
           { in: "query", name: "page", schema: { type: "integer", minimum: 1, default: 1 } },
           {
             in: "query",

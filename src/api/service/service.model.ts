@@ -1,5 +1,4 @@
 import { Schema, model } from "mongoose";
-import { OWNERS } from "../entitlement/entitlement.types.js";
 const categorySchema = new Schema(
   {
     organizationId: { type: String, required: true, index: true },
@@ -21,7 +20,6 @@ const serviceSchema = new Schema(
     status: { type: String, enum: ["active", "inactive"], default: "active" },
     categoryId: { type: Schema.Types.ObjectId, ref: "ServiceCategory", required: true },
     slug: String,
-    owner: { type: String, enum: OWNERS, default: "aerwell" },
     modality: { type: String, enum: ["physical", "virtual"], default: "physical" },
     // "listed" with no markets = offered nowhere (fail closed).
     marketScope: { type: String, enum: ["all", "listed"], default: "listed" },

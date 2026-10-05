@@ -1,11 +1,5 @@
 import { Schema, model } from "mongoose";
-import {
-  BENEFIT_ACCESS,
-  OWNERS,
-  PERIOD_UNITS,
-  PLAN_BRANDS,
-  PRICING_MODES,
-} from "../entitlement/entitlement.types.js";
+import { BENEFIT_ACCESS, PERIOD_UNITS, PRICING_MODES } from "../entitlement/entitlement.types.js";
 
 // Every editable catalog document uses `version` as its optimistic-concurrency
 // key: mongoose adds it to the save filter and increments it on each change.
@@ -66,13 +60,10 @@ const planSchema = new Schema(
     organizationId: { type: String, required: true, index: true },
     slug: String,
     name: { type: String, required: true, trim: true },
-    brand: { type: String, enum: PLAN_BRANDS, required: true },
     priceCents: { type: Number, min: 0, default: null },
     billingTerm: { type: String, enum: ["monthly", "quarterly", "annual", null], default: null },
     status: { type: String, enum: ["active", "archived"], default: "active" },
-    isBaseline: { type: Boolean, default: false },
     clinicianChat: { type: Boolean, default: false },
-    restrictedOwners: { type: [{ type: String, enum: OWNERS }], default: [] },
     benefits: { type: [benefitSchema], default: [] },
     effectiveFrom: { type: Date, default: Date.now },
   },

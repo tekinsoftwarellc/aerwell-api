@@ -68,7 +68,6 @@ beforeEach(async () => {
     basePriceCents: 10000,
     status: "active",
     lateCancellationFee: { enabled: false, windowHours: 24 },
-    owner: "aerwell",
     modality: "physical",
     marketScope: "listed",
     marketIds: [marketId],
@@ -76,20 +75,18 @@ beforeEach(async () => {
 });
 const create = (body: Record<string, unknown> = base) =>
   request(app).post("/api/v1/services").set(auth()).send(body);
-it("seeds eight categories and the four client plans idempotently", async () => {
+it("seeds seven categories and the two client plans idempotently", async () => {
   await seedCatalog("org-test");
   await seedCatalog("org-test");
-  expect(await ServiceCategory.countDocuments()).toBe(8);
+  expect(await ServiceCategory.countDocuments()).toBe(7);
   const cats = await request(app).get("/api/v1/service-categories").set(auth());
   expect(cats.status).toBe(200);
-  expect(cats.body.data).toHaveLength(8);
+  expect(cats.body.data).toHaveLength(7);
   const plans = await request(app).get("/api/v1/membership-plans").set(auth());
   expect(plans.status).toBe(200);
   expect(plans.body.data.map((p: { slug: string }) => p.slug)).toEqual([
-    "alfred-free",
     "aerwell-continuum",
     "aerwell-essential",
-    "everhaus-member",
   ]);
 });
 it("creates, reads, updates, scopes lookups and audits real services", async () => {
@@ -98,7 +95,8 @@ it("creates, reads, updates, scopes lookups and audits real services", async () 
   const id = saved.body.data.id;
   expect(saved.body.data.scheduledCount).toBe(0);
   const read = (await request(app).get(`/api/v1/services/${id}`).set(auth())).body.data;
-  expect(read).toMatchObject({ owner: "aerwell", marketScope: "listed", marketIds: [marketId] });
+  expect(read).toMatchObject({ marketScope: "listed", marketIds: [marketId] });
+  expect(read.owner).toBeUndefined();
   expect(read.slug).toBe("consultation");
   expect(read.membershipAccess).toBeUndefined();
   expect(read.version).toBe(0);
@@ -180,7 +178,7 @@ it.each([
   { imageKey: "foreign/key" },
   { assignedStaffIds: ["invalid"] },
   { membershipAccess: [] },
-  { owner: "alfred" },
+  { owner: "aerwell" },
   { modality: "hybrid" },
   { marketScope: "all" },
   { marketIds: ["bad"] },

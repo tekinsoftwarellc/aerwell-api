@@ -122,7 +122,6 @@ export async function listServices(req: Request) {
   const filter = catalogScope(req);
   if (query.status) filter.status = query.status;
   if (query.categoryId) filter.categoryId = query.categoryId;
-  if (query.owner) filter.owner = query.owner;
   if (query.q)
     filter.title = { $regex: query.q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" };
   const [docs, total] = await Promise.all([
@@ -204,7 +203,6 @@ function editable(doc: InstanceType<typeof Service>) {
     description: doc.description,
     status: doc.status,
     categoryId: String(doc.categoryId),
-    owner: doc.owner,
     modality: doc.modality,
     marketScope: doc.marketScope,
     marketIds: doc.marketIds.map(String),

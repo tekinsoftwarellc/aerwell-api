@@ -2,9 +2,7 @@ import { z } from "zod";
 import {
   BASIS_POINTS_PER_WHOLE,
   BENEFIT_ACCESS,
-  OWNERS,
   PERIOD_UNITS,
-  PLAN_BRANDS,
 } from "../entitlement/entitlement.types.js";
 import { cents, objectId, slug } from "../service/service.schema.js";
 
@@ -93,13 +91,10 @@ const planFields = z
   .object({
     slug,
     name: z.string().trim().min(1).max(120),
-    brand: z.enum(PLAN_BRANDS),
     priceCents: cents.nullable().default(null),
     billingTerm: z.enum(["monthly", "quarterly", "annual"]).nullable().default(null),
     status: z.enum(["active", "archived"]).default("active"),
-    isBaseline: z.boolean().default(false),
     clinicianChat: z.boolean().default(false),
-    restrictedOwners: unique(z.enum(OWNERS), OWNERS.length, "Owners"),
     benefits: z
       .array(benefitSchema)
       .max(100)

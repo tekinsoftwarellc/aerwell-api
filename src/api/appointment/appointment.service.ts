@@ -206,7 +206,7 @@ export async function appointmentDetail(req: Request) {
     expand([row]),
     visitsThisMonth(row),
     price.selection?.planId
-      ? MembershipPlan.findById(price.selection.planId).select("name brand").lean()
+      ? MembershipPlan.findById(price.selection.planId).select("name").lean()
       : null,
     cancellationTerms(doc),
   ]);
@@ -219,7 +219,7 @@ export async function appointmentDetail(req: Request) {
     bookingSource: row.bookingSource,
     bookedAt: row.bookedAt,
     modality: row.modality,
-    membership: plan ? { planId: String(plan._id), name: plan.name, brand: plan.brand } : null,
+    membership: plan ? { planId: String(plan._id), name: plan.name } : null,
     visitsThisMonth: visits,
     price: row.price,
     paymentStatus: row.paymentStatus,

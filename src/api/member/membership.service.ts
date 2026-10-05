@@ -27,10 +27,7 @@ export const USAGE_TRACKED = {
   tracked: true,
   reason: "Units reserved by a booking or consumed by a visit, from the allowance ledger.",
 } as const;
-const BRAND_LABELS: Record<string, string> = {
-  aerwell: "Aerwell Member",
-  everhaus: "Everhaus Member",
-};
+const MEMBER_LABEL = "Aerwell Member";
 type MembershipRow = {
   _id: unknown;
   planId: unknown;
@@ -48,7 +45,7 @@ export const toHolding = (m: MembershipRow): MembershipHolding => ({
 const isCurrent = (m: MembershipRow, at: Date) =>
   m.status === "active" && m.startedAt <= at && (!m.endsAt || at < m.endsAt);
 
-/** "Aerwell Member" / "Everhaus Member" from current memberships; Aerwell wins; null if none. */
+/** "Aerwell Member" for members holding a current membership; absent (null) otherwise. */
 export async function brandLabels(
   organizationId: string,
   memberIds: Types.ObjectId[],
@@ -59,18 +56,9 @@ export async function brandLabels(
     memberId: { $in: memberIds },
     status: "active",
   }).lean();
-  const current = rows.filter((row) => isCurrent(row, at));
-  const plans = await MembershipPlan.find({ _id: { $in: current.map((r) => r.planId) } })
-    .select("brand")
-    .lean();
-  const brandOf = new Map(plans.map((p) => [String(p._id), p.brand]));
-  const labels = new Map<string, string | null>();
-  for (const row of current) {
-    const label = BRAND_LABELS[brandOf.get(String(row.planId)) ?? ""];
-    const key = String(row.memberId);
-    if (label && labels.get(key) !== BRAND_LABELS["aerwell"]) labels.set(key, label);
-  }
-  return labels;
+  return new Map<string, string | null>(
+    rows.filter((row) => isCurrent(row, at)).map((row) => [String(row.memberId), MEMBER_LABEL])
+  );
 }
 
 async function assignablePlan(organizationId: string, planId: string, session?: ClientSession) {
@@ -78,8 +66,8 @@ async function assignablePlan(organizationId: string, planId: string, session?: 
     session ?? null
   );
   if (!plan) throw new NotFoundError("Membership plan not found");
-  // The baseline (Alfred Free) is implicit for everyone; legacy slug-less plans are read-only.
-  if (plan.isBaseline || plan.status !== "active" || !plan.slug)
+  // Legacy slug-less plans are read-only.
+  if (plan.status !== "active" || !plan.slug)
     throw new ValidationError("This plan cannot be assigned to a member", "PLAN_NOT_ASSIGNABLE");
   return plan;
 }
@@ -176,7 +164,6 @@ export async function listMemberships(req: Request) {
       return {
         ...row,
         planName: plan?.name ?? null,
-        brand: plan?.brand ?? null,
         clinicianChat: plan?.clinicianChat ?? false,
       };
     }),
@@ -278,7 +265,6 @@ export async function memberBenefits(req: Request) {
       membershipId: String(row._id),
       planId: String(row.planId),
       planName: plan?.name ?? null,
-      brand: plan?.brand ?? null,
       startedAt: row.startedAt,
       endsAt: row.endsAt ?? null,
       benefits: (plan?.benefits ?? []).map((benefit) => {

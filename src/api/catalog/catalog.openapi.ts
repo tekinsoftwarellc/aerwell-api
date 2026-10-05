@@ -64,18 +64,10 @@ const benefit = {
 const planFields = {
   slug,
   name: { type: "string", minLength: 1, maxLength: 120 },
-  brand: { type: "string", enum: ["alfred", "aerwell", "everhaus"] },
   priceCents: { ...cents, nullable: true, description: "null = price not supplied" },
   billingTerm: { type: "string", enum: ["monthly", "quarterly", "annual"], nullable: true },
   status: { type: "string", enum: ["active", "archived"] },
-  isBaseline: { ...bool, description: "At most one active baseline (Alfred Free)" },
   clinicianChat: bool,
-  restrictedOwners: {
-    type: "array",
-    uniqueItems: true,
-    items: { type: "string", enum: ["aerwell", "everhaus"] },
-    description: "Owners whose services are ineligible unless a benefit grants them",
-  },
   benefits: { type: "array", maxItems: 100, items: benefit },
 };
 const modifierFields = {
@@ -206,7 +198,7 @@ const op = (
     401: json("Session expired", error),
     403: json("Permission denied", error),
     404: json("Not found in this organization", error),
-    409: json("Slug taken, second baseline or stale expectedVersion", error),
+    409: json("Slug taken or stale expectedVersion", error),
   },
   ...extra,
 });
@@ -240,7 +232,7 @@ export const catalogPaths = {
     post: op(
       "Create membership plan with per-service benefits; BILLING edit",
       plan,
-      { requestBody: body(createBody(planFields, ["slug", "name", "brand"])) },
+      { requestBody: body(createBody(planFields, ["slug", "name"])) },
       true
     ),
   },

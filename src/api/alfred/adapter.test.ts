@@ -50,7 +50,7 @@ it("sends the configured model id and maps the Converse response", async () => {
 });
 
 it("keeps only the provider error NAME, never its message", async () => {
-  const leaky = Object.assign(new Error("arn:aws:iam::123:user/everhaus is not authorized"), {
+  const leaky = Object.assign(new Error("arn:aws:iam::123:user/other-app is not authorized"), {
     name: "AccessDeniedException",
   });
   const model = new BedrockAlfredModel({ send: () => Promise.reject(leaky) }, "us.x");

@@ -71,15 +71,17 @@ describe("membership records", () => {
     expect(results.map((r) => r.status).sort()).toEqual([201, 409]);
     expect(await MemberMembership.countDocuments({ memberId: member._id })).toBe(1);
   });
-  it("refuses the baseline, archived or unknown plans", async () => {
-    const baseline = await hold("alfred-free");
-    expect(baseline.status).toBe(422);
-    expect(baseline.body.code).toBe("PLAN_NOT_ASSIGNABLE");
+  it("refuses legacy, archived or unknown plans", async () => {
+    const legacy = await MembershipPlan.create({ organizationId: ORG, name: "Legacy tier" });
+    plan["legacy"] = String(legacy._id);
+    const refused = await hold("legacy");
+    expect(refused.status).toBe(422);
+    expect(refused.body.code).toBe("PLAN_NOT_ASSIGNABLE");
     await MembershipPlan.updateOne(
-      { _id: plan["everhaus-member"] },
+      { _id: plan["aerwell-continuum"] },
       { $set: { status: "archived" } }
     );
-    expect((await hold("everhaus-member")).status).toBe(422);
+    expect((await hold("aerwell-continuum")).status).toBe(422);
     expect((await admin.send("post", base(), { planId: idOf(member) })).status).toBe(404);
     expect(await MemberMembership.countDocuments()).toBe(0);
   });
@@ -115,11 +117,12 @@ describe("membership records", () => {
     expect(res.status).toBe(201);
     expect(await MemberMembership.countDocuments({ memberId: res.body.data._id })).toBe(1);
     expect(res.body.data.brandLabel).toBe("Aerwell Member");
+    const legacy = await MembershipPlan.create({ organizationId: ORG, name: "Legacy tier" });
     const bad = await admin.send("post", "/members", {
       firstName: "Bad",
       lastName: "Plan",
       email: "bad-plan@example.invalid",
-      memberships: [{ planId: plan["alfred-free"] }],
+      memberships: [{ planId: String(legacy._id) }],
     });
     expect(bad.status).toBe(422);
     expect((await admin.get("/members?q=bad-plan")).body.data.items).toEqual([]);
@@ -130,6 +133,23 @@ describe("benefits view", () => {
   it("reports used/remaining from the allowance ledger and anniversary renewal", async () => {
     const holding = await hold("aerwell-continuum");
     const assessmentId = (await Service.findOne({ slug: "advanced-assessment" }).lean())?._id;
+    const dexaId = (await Service.findOne({ slug: "dexa-scan" }).lean())?._id;
+    await MembershipPlan.updateOne(
+      { _id: plan["aerwell-continuum"] },
+      {
+        $push: {
+          benefits: {
+            id: String(dexaId),
+            serviceId: dexaId,
+            access: "eligible",
+            includedQuantity: 0,
+            period: null,
+            exhaustion: "paid",
+            pricing: { mode: "discount", discountBps: 2000 },
+          },
+        },
+      }
+    );
     const entry = (
       periodStart: string,
       status: string,
@@ -168,16 +188,15 @@ describe("benefits view", () => {
       periodStart: "2026-01-15T08:00:00.000Z",
       renewsAt: "2027-01-15T08:00:00.000Z",
     });
-    const redLight = held.benefits.find(
-      (b: { serviceSlug: string }) => b.serviceSlug === "red-light-therapy"
-    );
-    expect(redLight).toMatchObject({
+    const dexa = held.benefits.find((b: { serviceSlug: string }) => b.serviceSlug === "dexa-scan");
+    expect(held.brand).toBeUndefined();
+    expect(dexa).toMatchObject({
       includedQuantity: 0,
       used: null,
       remaining: null,
       renewsAt: null,
     });
-    expect(redLight.pricing).toEqual({ mode: "discount", discountBps: 2000 });
+    expect(dexa.pricing).toEqual({ mode: "discount", discountBps: 2000 });
     expect(
       await AuditEvent.countDocuments({ targetType: "MemberBenefits", action: "viewed" })
     ).toBe(1);

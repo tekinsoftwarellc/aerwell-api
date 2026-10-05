@@ -101,7 +101,7 @@ it("member, clinical, booking, Alfred and error flows log no PHI", async () => {
   expect((await api.get(`/api/v1/members?q=${PHI.lastName}`)).status).toBe(200);
   expect((await api.get(`/api/v1/members/search?q=${PHI.firstName}`)).status).toBe(200);
   expect((await api.get(`/api/v1/members/${w.memberId}/lab-panels/${w.panelId}`)).status).toBe(200);
-  const booking = await api.post("/api/v1/appointments", w.booking(id, "red-light-therapy"));
+  const booking = await api.post("/api/v1/appointments", w.booking(id, "dexa-scan"));
   expect(booking.status).toBeLessThan(500);
   // A 500 whose error message carries PHI.
   vi.spyOn(Member, "findOne").mockImplementationOnce(() => {

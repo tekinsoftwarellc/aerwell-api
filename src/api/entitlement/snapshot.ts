@@ -26,7 +26,6 @@ export async function loadCatalogSnapshot(organizationId: string): Promise<Catal
       (s): ServiceConfig => ({
         id: String(s._id),
         version: versionOf(s),
-        owner: s.owner ?? "aerwell",
         status: s.deletedAt ? "archived" : (s.status ?? "inactive"),
         retailCents: s.basePriceCents ?? null,
         marketScope: s.marketScope ?? "listed",
@@ -40,9 +39,7 @@ export async function loadCatalogSnapshot(organizationId: string): Promise<Catal
         id: String(p._id),
         version: versionOf(p),
         status: p.status ?? "archived",
-        isBaseline: p.isBaseline ?? false,
         clinicianChat: p.clinicianChat ?? false,
-        restrictedOwners: p.restrictedOwners ?? [],
         benefits: (p.benefits ?? []).map(
           (b): BenefitConfig => ({
             id: b.id,

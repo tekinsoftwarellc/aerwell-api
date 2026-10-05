@@ -1,5 +1,5 @@
 // One-way migration from the original W4 placeholder catalog (Aerwell Tier 1/2/3
-// + single Everhaus tier, per-service membershipAccess) to the client catalog.
+// + legacy tier plans, per-service membershipAccess) to the client catalog.
 // Mongoose never drops indexes, and strict schemas strip unknown paths from
 // updates, so this works on the native collections. Idempotent.
 import { Service } from "../service/service.model.js";
@@ -23,7 +23,6 @@ async function dropLegacyPlanIndex(): Promise<boolean> {
 async function backfillServices(): Promise<number> {
   const collection = Service.collection;
   const defaults = {
-    owner: "aerwell",
     modality: "physical",
     // Fail closed: a migrated service is offered nowhere until staff configure it.
     marketScope: "listed",

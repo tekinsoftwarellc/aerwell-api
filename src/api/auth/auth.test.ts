@@ -130,7 +130,7 @@ describe("independent staff authentication", () => {
     const claims = jwt.decode(access) as jwt.JwtPayload;
     for (const token of [
       "invalid",
-      jwt.sign({ ...claims, aud: "everhaus-api" }, env.STAFF_JWT_SECRET ?? ""),
+      jwt.sign({ ...claims, aud: "other-api" }, env.STAFF_JWT_SECRET ?? ""),
       jwt.sign({ ...claims, iss: "alfred-auth" }, env.STAFF_JWT_SECRET ?? ""),
       jwt.sign({ ...claims, exp: 1 }, env.STAFF_JWT_SECRET ?? ""),
     ])

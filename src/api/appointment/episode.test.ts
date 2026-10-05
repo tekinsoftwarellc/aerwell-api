@@ -88,7 +88,11 @@ it("one allowance unit covers the whole assessment; components never consume the
 
 it("a retail assessment is due once; its components are $0 plus the blood draw's mobile fee", async () => {
   const w = await bookingWorld();
-  const member = await w.member();
+  const member = await w.member(["aerwell-essential"]);
+  // Spend Essential's two included assessments so the third is bought at retail.
+  await openEpisode(w, member._id);
+  await openEpisode(w, member._id);
+  const ledgerBefore = await AllowanceLedgerEntry.countDocuments();
   const opened = await openEpisode(w, member._id);
   expect(opened.body.data.episode).toMatchObject({
     amountDueCents: 99500,
@@ -102,7 +106,7 @@ it("a retail assessment is due once; its components are $0 plus the blood draw's
   });
   expect(vo2.body.data.appointment.amountDueCents).toBe(0);
   expect(blood.body.data.appointment.amountDueCents).toBe(12000);
-  expect(await AllowanceLedgerEntry.countDocuments()).toBe(0);
+  expect(await AllowanceLedgerEntry.countDocuments()).toBe(ledgerBefore);
   // Outside an episode the same component is retail.
   const standalone = await w.quoteOf(w.booking(member._id, "vo2-max-test", "11:00"));
   expect(standalone.body.data.finalCents).toBe(17500);

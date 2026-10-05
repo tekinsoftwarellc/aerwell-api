@@ -60,7 +60,6 @@ async function seedServiceDocs(organizationId: string, markets: IdMap): Promise<
           slug: s.slug,
           title: s.title,
           description: s.description,
-          owner: s.owner,
           categoryId: resolve(categories, [s.category])[0],
           basePriceCents: s.retailCents,
           modality: s.modality,

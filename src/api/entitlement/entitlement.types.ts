@@ -1,9 +1,5 @@
 // Plain-data contract for the pure entitlement evaluator. W6 loads these from
 // Mongo (see snapshot.ts) and passes them in; nothing here touches a database.
-export const OWNERS = ["aerwell", "everhaus"] as const;
-export type Owner = (typeof OWNERS)[number];
-export const PLAN_BRANDS = ["alfred", "aerwell", "everhaus"] as const;
-export type PlanBrand = (typeof PLAN_BRANDS)[number];
 export const BENEFIT_ACCESS = ["eligible", "ineligible", "exclusive"] as const;
 export type BenefitAccess = (typeof BENEFIT_ACCESS)[number];
 export const PRICING_MODES = ["retail", "discount", "custom", "included"] as const;
@@ -40,15 +36,12 @@ export interface PlanConfig {
   id: string;
   version: number;
   status: "active" | "archived";
-  isBaseline: boolean;
   clinicianChat: boolean;
-  restrictedOwners: Owner[];
   benefits: BenefitConfig[];
 }
 export interface ServiceConfig {
   id: string;
   version: number;
-  owner: Owner;
   status: "active" | "inactive" | "archived";
   retailCents: number | null;
   marketScope: "all" | "listed";

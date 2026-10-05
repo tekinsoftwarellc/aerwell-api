@@ -35,23 +35,19 @@ export function applyBasisPoints(cents: number, bps: number): number {
 }
 
 interface Candidate {
-  membership: MembershipHolding | null;
-  plan: PlanConfig | null;
+  membership: MembershipHolding;
+  plan: PlanConfig;
 }
 const isCurrent = (m: MembershipHolding, at: Date) =>
   m.status === "active" && m.startedAt <= at && (!m.endsAt || at < m.endsAt);
 
-function activeCandidates(catalog: CatalogSnapshot, req: EntitlementRequest): Candidate[] {
-  const held = req.memberships.flatMap((membership) => {
-    const plan = catalog.plans.find((p) => p.id === membership.planId && p.status === "active");
-    return plan && isCurrent(membership, req.at) ? [{ membership, plan }] : [];
+// Only memberships the member currently holds entitle anything: with none,
+// every quote is denied NOT_ELIGIBLE (there is no implicit plan).
+function activeCandidates(plans: PlanConfig[], memberships: MembershipHolding[], at: Date) {
+  return memberships.flatMap((membership): Candidate[] => {
+    const plan = plans.find((p) => p.id === membership.planId && p.status === "active");
+    return plan && isCurrent(membership, at) ? [{ membership, plan }] : [];
   });
-  // No active baseline = no implicit entitlement: fail closed rather than open
-  // retail (Free/DTC must never reach Everhaus checkout by misconfiguration).
-  const baseline = catalog.plans
-    .filter((p) => p.isBaseline && p.status === "active")
-    .map((plan) => ({ membership: null, plan }));
-  return [...held, ...baseline];
 }
 
 export function clinicianChatAllowed(
@@ -59,10 +55,7 @@ export function clinicianChatAllowed(
   memberships: MembershipHolding[],
   at: Date
 ): boolean {
-  return activeCandidates({ plans, services: [], markets: [], modifiers: [] }, {
-    memberships,
-    at,
-  } as EntitlementRequest).some((c) => c.plan?.clinicianChat === true);
+  return activeCandidates(plans, memberships, at).some((c) => c.plan.clinicianChat);
 }
 
 /** null = member outside every configured market; unknown or inactive ids offer nothing. */
@@ -134,10 +127,10 @@ function evaluateCandidate(
   candidate: Candidate,
   req: EntitlementRequest
 ): CandidateOutcome {
-  const benefit = candidate.plan?.benefits.find((b) => b.serviceId === service.id);
+  const benefit = candidate.plan.benefits.find((b) => b.serviceId === service.id);
   const selection = {
-    membershipId: candidate.membership?.id ?? null,
-    planId: candidate.plan?.id ?? null,
+    membershipId: candidate.membership.id,
+    planId: candidate.plan.id,
     benefitId: benefit?.id ?? null,
   };
   const fail = (denialReason: DenialReason, allowance: AllowanceState | null = null) => ({
@@ -148,13 +141,8 @@ function evaluateCandidate(
     priceCents: null,
     allowance,
   });
-  if (
-    benefit?.access === "ineligible" ||
-    (!benefit && candidate.plan?.restrictedOwners.includes(service.owner))
-  )
-    return fail("NOT_ELIGIBLE");
-  const allowance =
-    benefit && candidate.membership ? allowanceFor(benefit, candidate.membership, req) : null;
+  if (benefit?.access === "ineligible") return fail("NOT_ELIGIBLE");
+  const allowance = benefit ? allowanceFor(benefit, candidate.membership, req) : null;
   if (allowance?.consumes)
     return {
       selection,
@@ -193,13 +181,13 @@ function episodeOutcome(
       priceCents: 0,
       allowance: null,
     };
-  const holder = candidates.find((c) => c.membership?.id === episode.membershipId);
-  const benefit = holder?.plan?.benefits.find((b) => b.id === episode.benefitId);
+  const holder = candidates.find((c) => c.membership.id === episode.membershipId);
+  const benefit = holder?.plan.benefits.find((b) => b.id === episode.benefitId);
   if (!benefit || benefit.serviceId !== bundle.id || benefit.access === "ineligible") return null;
   return {
     selection: {
       membershipId: episode.membershipId,
-      planId: holder?.plan?.id ?? null,
+      planId: holder?.plan.id ?? null,
       benefitId: episode.benefitId,
     },
     ok: true,
@@ -217,7 +205,7 @@ const feeFor = (modifier: DeliveryModifierConfig | null, outcome: CandidateOutco
     : modifier.amountCents;
 // Proposal (not client-approved): lowest final amount (price + fee) wins; on a
 // tie prefer not consuming a unit, then (when both consume) the pool that renews
-// first, then a held membership over the baseline (provenance), then stable ids.
+// first, then a held membership over a purchased episode (provenance), then stable ids.
 const compareOutcomes =
   (modifier: DeliveryModifierConfig | null) =>
   (a: CandidateOutcome, b: CandidateOutcome): number => {
@@ -292,7 +280,7 @@ export function evaluateEntitlement(
     return deny("MARKET_UNAVAILABLE", version);
   const modifier = resolveModifier(catalog, req, service);
   if (modifier === "unavailable") return deny("DELIVERY_UNAVAILABLE", version);
-  const candidates = activeCandidates(catalog, req);
+  const candidates = activeCandidates(catalog.plans, req.memberships, req.at);
   const outcomes = candidates.map((c) => evaluateCandidate(service, c, req));
   const episode = episodeOutcome(catalog, service, candidates, req);
   const valid = [...(episode ? [episode] : []), ...outcomes]

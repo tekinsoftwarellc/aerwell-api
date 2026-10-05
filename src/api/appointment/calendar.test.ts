@@ -25,11 +25,11 @@ const times = (res: { body: { data: { items: { startAt: string }[] } } }) =>
 it("lists a local day as [midnight, next midnight) sorted by start, with filters on both sides", async () => {
   const w = await bookingWorld();
   await shiftFor(w.provider.staff._id, w.vegas._id, DAY, "07:00", "19:00");
-  const ava = await w.member([], { firstName: "Ava", lastName: "Morgan" });
-  const leo = await w.member(["everhaus-member"], { firstName: "Leo", lastName: "Grant" });
+  const ava = await w.member(["aerwell-essential"], { firstName: "Ava", lastName: "Morgan" });
+  const leo = await w.member(["aerwell-continuum"], { firstName: "Leo", lastName: "Grant" });
   // Booked out of order so natural order is wrong.
   await book(w, ava._id, "clinician-telehealth-visit", DAY, "15:00");
-  await book(w, leo._id, "red-light-therapy", DAY, "09:00");
+  await book(w, leo._id, "vo2-max-test", DAY, "09:00");
   const cancelled = await book(w, ava._id, "dexa-scan", DAY, "11:00");
   await w.api.post(`/api/v1/appointments/${cancelled}/cancel`, { reason: "Test" });
   const day = await w.api.get(
@@ -40,7 +40,7 @@ it("lists a local day as [midnight, next midnight) sorted by start, with filters
   expect(day.body.data.items[0]).toMatchObject({
     member: { name: "Leo Grant" },
     provider: { displayName: "Dr. Diebel" },
-    service: { title: "Red Light Therapy", category: { name: "Everhaus wellness" } },
+    service: { title: "VO2 Max Test", category: { name: "Performance & diagnostic" } },
     location: { name: "Aerwell Las Vegas" },
   });
   const withCancelled = await w.api.get(
@@ -84,7 +84,7 @@ it("lists a local day as [midnight, next midnight) sorted by start, with filters
 
 it("uses 23- and 25-hour local days across DST changes", async () => {
   const w = await bookingWorld();
-  const member = await w.member();
+  const member = await w.member(["aerwell-essential"]);
   // Spring forward (2027-03-14): 00:30 on the 15th PDT is 07:30Z, still "the 15th".
   await shiftFor(w.provider.staff._id, w.vegas._id, "2027-03-14", "07:00", "19:00");
   await shiftFor(w.provider.staff._id, w.vegas._id, "2027-03-15", "07:00", "19:00");
@@ -119,7 +119,7 @@ it("uses 23- and 25-hour local days across DST changes", async () => {
 
 it("derives availability from shifts, hours, PTO and bookings", async () => {
   const w = await bookingWorld();
-  const member = await w.member();
+  const member = await w.member(["aerwell-essential"]);
   const url = (from: string, extra = "") =>
     `/api/v1/availability?serviceId=${w.service("clinician-telehealth-visit")}&locationId=${w.vegas._id}&from=${from}${extra}`;
   // DAY shift 08:00–17:00, 60 min, 15-min grid: 08:00 … 16:00 = 33 starts.

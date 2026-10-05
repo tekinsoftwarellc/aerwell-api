@@ -100,7 +100,10 @@ export const LAB_SENTINEL = 4.87;
 export async function alfredWorld() {
   const w = await bookingWorld();
   const ids = await catalogIds();
-  const shannon = await w.member([], { firstName: "Shannon", lastName: "Ashton" });
+  const shannon = await w.member(["aerwell-essential"], {
+    firstName: "Shannon",
+    lastName: "Ashton",
+  });
   const director = client(app, w.director.accessToken);
   const base = `/members/${idOf(shannon)}`;
   const panel = await director.send("post", `${base}/lab-panels`, {

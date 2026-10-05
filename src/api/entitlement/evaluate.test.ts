@@ -31,7 +31,6 @@ function seedSnapshot(): CatalogSnapshot {
     services: seedServices.map((s) => ({
       id: s.slug,
       version: 1,
-      owner: s.owner,
       status: "active",
       retailCents: s.retailCents,
       marketScope: s.marketScope,
@@ -42,9 +41,7 @@ function seedSnapshot(): CatalogSnapshot {
       id: p.slug,
       version: 1,
       status: "active",
-      isBaseline: p.isBaseline,
       clinicianChat: p.clinicianChat,
-      restrictedOwners: p.restrictedOwners,
       benefits: p.benefits.map((b) => ({
         id: b.service,
         serviceId: b.service,
@@ -101,124 +98,142 @@ const ask = (
   });
 const ESSENTIAL = ["aerwell-essential"];
 const CONTINUUM = ["aerwell-continuum"];
-const EVERHAUS = ["everhaus-member"];
-const EVERHAUS_SERVICES = [
-  "red-light-therapy",
-  "hyperbaric-oxygen-therapy",
-  "autonomous-massage-therapy",
-  "everhaus-training",
-  "personal-training",
-  "sanctuary",
-];
+const withBenefit = (planId: string, serviceId: string, patch: Partial<BenefitConfig>) => {
+  const catalog = seedSnapshot();
+  catalog.plans = catalog.plans.map((p) =>
+    p.id === planId
+      ? {
+          ...p,
+          benefits: [
+            ...p.benefits.filter((b) => b.serviceId !== serviceId),
+            {
+              id: serviceId,
+              serviceId,
+              access: "eligible",
+              includedQuantity: 0,
+              period: null,
+              exhaustion: "paid",
+              pricing: { mode: "retail" },
+              ...patch,
+            },
+          ],
+        }
+      : p
+  );
+  return catalog;
+};
 
-describe("acceptance: Free / DTC", () => {
+describe("acceptance: non-members", () => {
+  it("a member with no current membership is NOT_ELIGIBLE for every service", () => {
+    for (const { slug } of seedServices) {
+      const q = ask(slug, []);
+      expect(q).toMatchObject({
+        bookable: false,
+        denialReason: "NOT_ELIGIBLE",
+        selection: null,
+        finalCents: null,
+      });
+      expect(q.candidates).toEqual([]);
+    }
+    // Lapsed and future memberships are not current either.
+    const lapsed = [hold("aerwell-essential", START, { endsAt: new Date("2026-02-01") })];
+    expect(ask("dexa-scan", [], { memberships: lapsed }).denialReason).toBe("NOT_ELIGIBLE");
+  });
+  it("a non-member is NOT_ELIGIBLE even with a delivery method and a retail price", () => {
+    expect(
+      ask("comprehensive-blood-panel", [], { deliveryMethod: "mobile_phlebotomy" })
+    ).toMatchObject({ bookable: false, denialReason: "NOT_ELIGIBLE", feesCents: 0 });
+  });
+});
+
+describe("acceptance: members without a benefit row", () => {
   it.each([
     ["comprehensive-blood-panel", 59500],
     ["dexa-scan", 17500],
     ["vo2-max-test", 17500],
-    ["clinician-telehealth-visit", 25000],
-    ["advanced-assessment", 99500],
-  ])("Free + Las Vegas %s costs %i at retail", (service, cents) => {
-    const q = ask(service, []);
+  ])("Essential + Las Vegas %s costs %i at retail", (service, cents) => {
+    const q = ask(service, ESSENTIAL);
     expect(q).toMatchObject({
       bookable: true,
       decision: "retail",
       retailCents: cents,
       finalCents: cents,
     });
-    expect(q.selection).toMatchObject({ membershipId: null, planId: "alfred-free" });
+    expect(q.selection).toMatchObject({
+      membershipId: "m-aerwell-essential",
+      planId: "aerwell-essential",
+      benefitId: null,
+    });
   });
-  it.each([
-    ["comprehensive-blood-panel", 71500],
-    ["advanced-assessment", 111500],
-  ])("Free + Las Vegas mobile phlebotomy adds 12000 to %s", (service, cents) => {
-    const q = ask(service, [], { deliveryMethod: "mobile_phlebotomy" });
-    expect(q).toMatchObject({ bookable: true, feesCents: 12000, finalCents: cents });
+  it("mobile phlebotomy adds 12000 to the blood panel and to an included assessment", () => {
+    const q = ask("comprehensive-blood-panel", ESSENTIAL, { deliveryMethod: "mobile_phlebotomy" });
+    expect(q).toMatchObject({ bookable: true, feesCents: 12000, finalCents: 71500 });
     expect(q.fees).toEqual([
       { modifierId: "mobile_phlebotomy", key: "mobile_phlebotomy", amountCents: 12000 },
     ]);
+    expect(
+      ask("advanced-assessment", ESSENTIAL, { deliveryMethod: "mobile_phlebotomy" })
+    ).toMatchObject({ decision: "allowance", priceCents: 0, feesCents: 12000, finalCents: 12000 });
   });
   it.each(["new-york", null])(
-    "Free + %s: DEXA, VO2 and the assessment are unavailable",
+    "Essential + %s: DEXA, VO2 and the assessment are unavailable",
     (marketId) => {
       for (const service of ["dexa-scan", "vo2-max-test", "advanced-assessment"])
-        expect(ask(service, [], { marketId })).toMatchObject({
+        expect(ask(service, ESSENTIAL, { marketId })).toMatchObject({
           bookable: false,
           denialReason: "MARKET_UNAVAILABLE",
           finalCents: null,
         });
-      expect(ask("comprehensive-blood-panel", [], { marketId }).finalCents).toBe(59500);
-      expect(ask("clinician-telehealth-visit", [], { marketId }).finalCents).toBe(25000);
-    }
-  );
-  it.each(["las-vegas", "new-york"])(
-    "Free in %s has no Everhaus checkout, even with a retail price",
-    (marketId) => {
-      for (const service of EVERHAUS_SERVICES) {
-        const q = ask(service, [], { marketId });
-        expect(q.bookable).toBe(false);
-        expect(q.finalCents).toBeNull();
-      }
-      expect(ask("red-light-therapy", []).denialReason).toBe("NOT_ELIGIBLE");
+      expect(ask("comprehensive-blood-panel", ESSENTIAL, { marketId }).finalCents).toBe(59500);
+      expect(ask("clinician-telehealth-visit", ESSENTIAL, { marketId }).bookable).toBe(true);
     }
   );
 });
 
-describe("acceptance: paid memberships", () => {
+describe("acceptance: configured benefit pricing", () => {
   it.each([
-    [ESSENTIAL, "red-light-therapy", 5400],
-    [ESSENTIAL, "hyperbaric-oxygen-therapy", 13500],
-    [ESSENTIAL, "autonomous-massage-therapy", 9000],
-    [ESSENTIAL, "everhaus-training", 6750],
-    [ESSENTIAL, "personal-training", 13500],
-    [CONTINUUM, "red-light-therapy", 4800],
-    [CONTINUUM, "hyperbaric-oxygen-therapy", 12000],
-    [CONTINUUM, "autonomous-massage-therapy", 8000],
-    [CONTINUUM, "everhaus-training", 6000],
-    [CONTINUUM, "personal-training", 12000],
-  ])("%j %s costs %i", (plans, service, cents) => {
-    expect(ask(service, plans)).toMatchObject({
+    ["aerwell-essential", 1000, 15750],
+    ["aerwell-continuum", 2000, 14000],
+  ])("%s with a %i bps discount prices DEXA at %i", (plan, discountBps, cents) => {
+    const catalog = withBenefit(plan, "dexa-scan", { pricing: { mode: "discount", discountBps } });
+    expect(ask("dexa-scan", [plan], {}, catalog)).toMatchObject({
       bookable: true,
       decision: "discount",
       finalCents: cents,
     });
   });
-  it.each([[ESSENTIAL], [CONTINUUM]])("%j is denied Sanctuary", (plans) => {
-    expect(ask("sanctuary", plans)).toMatchObject({
+  it("an ineligible benefit denies the service to that plan", () => {
+    const catalog = withBenefit("aerwell-essential", "dexa-scan", { access: "ineligible" });
+    expect(ask("dexa-scan", ESSENTIAL, {}, catalog)).toMatchObject({
       bookable: false,
       denialReason: "NOT_ELIGIBLE",
     });
   });
-  it("Everhaus includes red light, hyperbaric, massage, training and Sanctuary; PT costs 10000", () => {
-    for (const service of EVERHAUS_SERVICES.filter((s) => s !== "personal-training"))
-      expect(ask(service, EVERHAUS)).toMatchObject({
-        bookable: true,
-        decision: "included",
-        finalCents: 0,
-      });
-    expect(ask("personal-training", EVERHAUS)).toMatchObject({
+  it("included and custom pricing modes", () => {
+    const included = withBenefit("aerwell-essential", "dexa-scan", {
+      pricing: { mode: "included" },
+    });
+    expect(ask("dexa-scan", ESSENTIAL, {}, included)).toMatchObject({
+      decision: "included",
+      finalCents: 0,
+    });
+    const custom = withBenefit("aerwell-essential", "dexa-scan", {
+      pricing: { mode: "custom", customPriceCents: 10000 },
+    });
+    expect(ask("dexa-scan", ESSENTIAL, {}, custom)).toMatchObject({
       decision: "custom",
       finalCents: 10000,
-    });
-  });
-  it("Everhaus included assessment with mobile collection charges only the 12000 fee", () => {
-    const q = ask("advanced-assessment", EVERHAUS, { deliveryMethod: "mobile_phlebotomy" });
-    expect(q).toMatchObject({
-      decision: "allowance",
-      priceCents: 0,
-      feesCents: 12000,
-      finalCents: 12000,
     });
   });
   it("an episode's blood component is included and only the mobile fee is charged, once", () => {
     const episode = {
       id: "ep-1",
       bundleServiceId: "advanced-assessment",
-      membershipId: "m-everhaus-member",
+      membershipId: "m-aerwell-essential",
       benefitId: "advanced-assessment",
       fulfilledServiceIds: [] as string[],
     };
-    const first = ask("comprehensive-blood-panel", EVERHAUS, {
+    const first = ask("comprehensive-blood-panel", ESSENTIAL, {
       deliveryMethod: "mobile_phlebotomy",
       episode,
     });
@@ -228,24 +243,31 @@ describe("acceptance: paid memberships", () => {
       finalCents: 12000,
       allowance: null,
     });
-    const standard = ask("comprehensive-blood-panel", EVERHAUS, { episode });
+    const standard = ask("comprehensive-blood-panel", ESSENTIAL, { episode });
     expect(standard.finalCents).toBe(0);
-    const repeat = ask("comprehensive-blood-panel", EVERHAUS, {
+    const repeat = ask("comprehensive-blood-panel", ESSENTIAL, {
       episode: { ...episode, fulfilledServiceIds: ["comprehensive-blood-panel"] },
     });
     expect(repeat).toMatchObject({ decision: "retail", finalCents: 59500 });
     const foreign = ask("comprehensive-blood-panel", [], { episode });
-    expect(foreign.decision).toBe("retail");
-    expect(ask("red-light-therapy", EVERHAUS, { episode }).decision).toBe("included");
+    expect(foreign.denialReason).toBe("NOT_ELIGIBLE");
+    expect(ask("clinician-telehealth-visit", ESSENTIAL, { episode }).decision).toBe("allowance");
   });
 });
 
 describe("acceptance: allowances", () => {
-  const assessment = (plans: string[], used: number, extra: Partial<EntitlementRequest> = {}) =>
-    ask("advanced-assessment", plans, {
-      usage: { [usageKey(`m-${plans[0]}`, "advanced-assessment")]: used },
-      ...extra,
-    });
+  const assessment = (
+    plans: string[],
+    used: number,
+    extra: Partial<EntitlementRequest> = {},
+    catalog = seedSnapshot()
+  ) =>
+    ask(
+      "advanced-assessment",
+      plans,
+      { usage: { [usageKey(`m-${plans[0]}`, "advanced-assessment")]: used }, ...extra },
+      catalog
+    );
   it.each([
     [ESSENTIAL, 0, 1],
     [ESSENTIAL, 1, 0],
@@ -285,16 +307,20 @@ describe("acceptance: allowances", () => {
     expect(visit(limit - 1)).toMatchObject({ decision: "allowance", finalCents: 0 });
     expect(visit(limit)).toMatchObject({ decision: "retail", finalCents: 25000 });
   });
-  it("Everhaus assessment allowance is one per anniversary quarter", () => {
-    const q = assessment(EVERHAUS, 0);
+  it("a quarterly allowance is one per anniversary quarter", () => {
+    const catalog = withBenefit("aerwell-essential", "advanced-assessment", {
+      includedQuantity: 1,
+      period: { unit: "quarter", anchor: "anniversary", rollover: "none" },
+    });
+    const q = assessment(ESSENTIAL, 0, {}, catalog);
     expect(q.allowance).toMatchObject({
       limit: 1,
       periodStart: START,
       periodEnd: new Date("2026-04-15T08:00:00.000Z"),
     });
-    expect(assessment(EVERHAUS, 1).finalCents).toBe(99500);
+    expect(assessment(ESSENTIAL, 1, {}, catalog).finalCents).toBe(99500);
   });
-  it("deny-on-exhaustion refuses that benefit but never leaves the member worse off than baseline", () => {
+  it("deny-on-exhaustion refuses the booking when no other membership covers it", () => {
     const catalog = seedSnapshot();
     const essential = catalog.plans.find((p) => p.id === "aerwell-essential") as PlanConfig;
     essential.benefits = essential.benefits.map((b) =>
@@ -302,8 +328,7 @@ describe("acceptance: allowances", () => {
     );
     const usage = { "m-aerwell-essential:advanced-assessment": 2 };
     const q = ask("advanced-assessment", ESSENTIAL, { usage }, catalog);
-    expect(q).toMatchObject({ bookable: true, decision: "retail", finalCents: 99500 });
-    expect(q.selection?.planId).toBe("alfred-free");
+    expect(q).toMatchObject({ bookable: false, denialReason: "ALLOWANCE_EXHAUSTED" });
     expect(q.candidates.find((c) => c.selection.planId === "aerwell-essential")?.denialReason).toBe(
       "ALLOWANCE_EXHAUSTED"
     );
@@ -312,18 +337,35 @@ describe("acceptance: allowances", () => {
 
 describe("acceptance: overlapping memberships", () => {
   it("chooses the best single benefit and never stacks discounts", () => {
+    const catalog = withBenefit("aerwell-essential", "dexa-scan", {
+      pricing: { mode: "discount", discountBps: 1000 },
+    });
+    catalog.plans = catalog.plans.map((p) =>
+      p.id === "aerwell-continuum"
+        ? {
+            ...p,
+            benefits: [
+              ...p.benefits,
+              {
+                id: "dexa-scan",
+                serviceId: "dexa-scan",
+                access: "eligible",
+                includedQuantity: 0,
+                period: null,
+                exhaustion: "paid",
+                pricing: { mode: "discount", discountBps: 2000 },
+              },
+            ],
+          }
+        : p
+    );
     const both = [...ESSENTIAL, ...CONTINUUM];
-    const q = ask("red-light-therapy", both);
-    expect(q).toMatchObject({ finalCents: 4800, decision: "discount" });
+    const q = ask("dexa-scan", both, {}, catalog);
+    expect(q).toMatchObject({ finalCents: 14000, decision: "discount" });
     expect(q.selection?.planId).toBe("aerwell-continuum");
     expect(q.candidates.filter((c) => c.ok)).toHaveLength(2);
     // Same answer regardless of the order memberships arrive in.
-    expect(ask("red-light-therapy", [...CONTINUUM, ...ESSENTIAL]).finalCents).toBe(4800);
-    expect(ask("personal-training", [...ESSENTIAL, ...EVERHAUS]).finalCents).toBe(10000);
-    expect(ask("sanctuary", [...ESSENTIAL, ...EVERHAUS])).toMatchObject({
-      bookable: true,
-      finalCents: 0,
-    });
+    expect(ask("dexa-scan", [...CONTINUUM, ...ESSENTIAL], {}, catalog).finalCents).toBe(14000);
   });
   it("uses another membership's allowance when one pool is exhausted, then retail", () => {
     const both = [...ESSENTIAL, ...CONTINUUM];
@@ -372,7 +414,7 @@ describe("acceptance: configuration edits change quotes without code edits", () 
     catalog.modifiers = catalog.modifiers.map((m) => ({ ...m, amountCents: 15000, version: 2 }));
     const q = ask(
       "comprehensive-blood-panel",
-      [],
+      ESSENTIAL,
       { deliveryMethod: "mobile_phlebotomy" },
       catalog
     );
@@ -383,43 +425,43 @@ describe("acceptance: configuration edits change quotes without code edits", () 
 
 describe("availability, delivery and state guards", () => {
   it("rejects unknown, inactive and archived services and bundles with an inactive component", () => {
-    expect(ask("missing", []).denialReason).toBe("SERVICE_NOT_FOUND");
+    expect(ask("missing", ESSENTIAL).denialReason).toBe("SERVICE_NOT_FOUND");
     for (const status of ["inactive", "archived"] as const) {
       const catalog = seedSnapshot();
       catalog.services = catalog.services.map((s) => (s.id === "dexa-scan" ? { ...s, status } : s));
-      expect(ask("dexa-scan", [], {}, catalog).denialReason).toBe("SERVICE_INACTIVE");
-      expect(ask("advanced-assessment", EVERHAUS, {}, catalog).denialReason).toBe(
+      expect(ask("dexa-scan", ESSENTIAL, {}, catalog).denialReason).toBe("SERVICE_INACTIVE");
+      expect(ask("advanced-assessment", ESSENTIAL, {}, catalog).denialReason).toBe(
         "SERVICE_INACTIVE"
       );
-      expect(ask("comprehensive-blood-panel", [], {}, catalog).bookable).toBe(true);
+      expect(ask("comprehensive-blood-panel", ESSENTIAL, {}, catalog).bookable).toBe(true);
     }
   });
   it("applies geography to included benefits and honours inactive markets", () => {
-    expect(ask("advanced-assessment", EVERHAUS, { marketId: "new-york" }).denialReason).toBe(
+    expect(ask("advanced-assessment", ESSENTIAL, { marketId: "new-york" }).denialReason).toBe(
       "MARKET_UNAVAILABLE"
     );
     const catalog = seedSnapshot();
     catalog.markets = catalog.markets.map((m) =>
       m.id === "las-vegas" ? { ...m, active: false } : m
     );
-    expect(ask("dexa-scan", [], {}, catalog).denialReason).toBe("MARKET_UNAVAILABLE");
+    expect(ask("dexa-scan", ESSENTIAL, {}, catalog).denialReason).toBe("MARKET_UNAVAILABLE");
     catalog.markets.push({ id: "reno", active: true });
     catalog.services = catalog.services.map((s) =>
       s.id === "dexa-scan" ? { ...s, marketIds: ["reno"] } : s
     );
-    expect(ask("dexa-scan", [], { marketId: "reno" }, catalog).finalCents).toBe(17500);
+    expect(ask("dexa-scan", ESSENTIAL, { marketId: "reno" }, catalog).finalCents).toBe(17500);
   });
   it("rejects unknown, inapplicable, inactive and out-of-market delivery methods", () => {
-    expect(ask("comprehensive-blood-panel", [], { deliveryMethod: "drone" }).denialReason).toBe(
-      "DELIVERY_UNAVAILABLE"
-    );
-    expect(ask("dexa-scan", [], { deliveryMethod: "mobile_phlebotomy" }).denialReason).toBe(
+    expect(
+      ask("comprehensive-blood-panel", ESSENTIAL, { deliveryMethod: "drone" }).denialReason
+    ).toBe("DELIVERY_UNAVAILABLE");
+    expect(ask("dexa-scan", ESSENTIAL, { deliveryMethod: "mobile_phlebotomy" }).denialReason).toBe(
       "DELIVERY_UNAVAILABLE"
     );
     const inactive = seedSnapshot();
     inactive.modifiers = inactive.modifiers.map((m) => ({ ...m, active: false }));
     expect(
-      ask("comprehensive-blood-panel", [], { deliveryMethod: "mobile_phlebotomy" }, inactive)
+      ask("comprehensive-blood-panel", ESSENTIAL, { deliveryMethod: "mobile_phlebotomy" }, inactive)
         .denialReason
     ).toBe("DELIVERY_UNAVAILABLE");
     const listed = seedSnapshot();
@@ -429,9 +471,10 @@ describe("availability, delivery and state guards", () => {
       marketIds: ["las-vegas"],
     }));
     const mobile = { deliveryMethod: "mobile_phlebotomy" };
-    expect(ask("comprehensive-blood-panel", [], mobile, listed).finalCents).toBe(71500);
+    expect(ask("comprehensive-blood-panel", ESSENTIAL, mobile, listed).finalCents).toBe(71500);
     expect(
-      ask("comprehensive-blood-panel", [], { ...mobile, marketId: "new-york" }, listed).denialReason
+      ask("comprehensive-blood-panel", ESSENTIAL, { ...mobile, marketId: "new-york" }, listed)
+        .denialReason
     ).toBe("DELIVERY_UNAVAILABLE");
   });
   it("waives an included fee only when the modifier says so, and never discounts it", () => {
@@ -441,11 +484,14 @@ describe("availability, delivery and state guards", () => {
     const catalog = seedSnapshot();
     catalog.modifiers = catalog.modifiers.map((m) => ({ ...m, chargeWhenIncluded: false }));
     const mobile = { deliveryMethod: "mobile_phlebotomy" };
-    expect(ask("advanced-assessment", EVERHAUS, mobile, catalog)).toMatchObject({
+    expect(ask("advanced-assessment", ESSENTIAL, mobile, catalog)).toMatchObject({
       feesCents: 0,
       finalCents: 0,
     });
-    expect(ask("advanced-assessment", [], mobile, catalog).feesCents).toBe(12000);
+    const spent = { usage: { "m-aerwell-essential:advanced-assessment": 2 } };
+    expect(ask("advanced-assessment", ESSENTIAL, { ...mobile, ...spent }, catalog).feesCents).toBe(
+      12000
+    );
   });
   it("ignores memberships that are not active at the appointment time or whose plan is archived", () => {
     for (const extra of [
@@ -454,11 +500,10 @@ describe("availability, delivery and state guards", () => {
       { endsAt: new Date("2026-02-01T00:00:00.000Z") },
     ])
       expect(
-        ask("red-light-therapy", [], { memberships: [hold("aerwell-essential", START, extra)] })
-          .bookable
+        ask("dexa-scan", [], { memberships: [hold("aerwell-essential", START, extra)] }).bookable
       ).toBe(false);
     expect(
-      ask("red-light-therapy", [], {
+      ask("dexa-scan", [], {
         memberships: [hold("aerwell-essential", new Date("2026-06-01T00:00:00.000Z"))],
       }).bookable
     ).toBe(false);
@@ -466,16 +511,17 @@ describe("availability, delivery and state guards", () => {
     catalog.plans = catalog.plans.map((p) =>
       p.id === "aerwell-essential" ? { ...p, status: "archived" } : p
     );
-    expect(ask("red-light-therapy", ESSENTIAL, {}, catalog).bookable).toBe(false);
-    expect(ask("red-light-therapy", ["unknown-plan"]).bookable).toBe(false);
+    expect(ask("dexa-scan", ESSENTIAL, {}, catalog).bookable).toBe(false);
+    expect(ask("dexa-scan", ["unknown-plan"]).bookable).toBe(false);
+    expect(ask("dexa-scan", ESSENTIAL).bookable).toBe(true);
   });
-  it("refuses member-only services without a retail price to non-holders", () => {
-    expect(ask("assessment-clinician-review", []).denialReason).toBe("NOT_PURCHASABLE");
+  it("refuses services without a retail price to holders without a benefit for them", () => {
+    expect(ask("assessment-clinician-review", ESSENTIAL).denialReason).toBe("NOT_PURCHASABLE");
     const noRetail = seedSnapshot();
     noRetail.services = noRetail.services.map((s) =>
-      s.id === "red-light-therapy" ? { ...s, retailCents: null } : s
+      s.id === "dexa-scan" ? { ...s, retailCents: null } : s
     );
-    expect(ask("red-light-therapy", ESSENTIAL, {}, noRetail).denialReason).toBe("NOT_PURCHASABLE");
+    expect(ask("dexa-scan", ESSENTIAL, {}, noRetail).denialReason).toBe("NOT_PURCHASABLE");
   });
   it("prefers exhaustion over price or eligibility when explaining a denial", () => {
     const catalog = seedSnapshot();
@@ -487,7 +533,7 @@ describe("availability, delivery and state guards", () => {
               b.id === "advanced-assessment" ? { ...b, exhaustion: "deny" as const } : b
             ),
           }
-        : { ...p, restrictedOwners: ["aerwell" as const] }
+        : p
     );
     const q = ask(
       "advanced-assessment",
@@ -570,7 +616,9 @@ describe("money and periods", () => {
     const { plans } = seedSnapshot();
     expect(clinicianChatAllowed(plans, [], AT)).toBe(false);
     expect(clinicianChatAllowed(plans, [hold("aerwell-essential")], AT)).toBe(true);
-    expect(clinicianChatAllowed(plans, [hold("everhaus-member")], AT)).toBe(true);
+    expect(clinicianChatAllowed(plans, [hold("unknown-plan")], AT)).toBe(false);
+    const noChat = plans.map((p) => ({ ...p, clinicianChat: false }));
+    expect(clinicianChatAllowed(noChat, [hold("aerwell-essential")], AT)).toBe(false);
     expect(
       clinicianChatAllowed(plans, [hold("aerwell-essential", START, { status: "cancelled" })], AT)
     ).toBe(false);
@@ -578,45 +626,6 @@ describe("money and periods", () => {
 });
 
 describe("review regressions", () => {
-  const withBenefit = (planId: string, serviceId: string, patch: Partial<BenefitConfig>) => {
-    const catalog = seedSnapshot();
-    catalog.plans = catalog.plans.map((p) =>
-      p.id === planId
-        ? {
-            ...p,
-            benefits: [
-              ...p.benefits.filter((b) => b.serviceId !== serviceId),
-              {
-                id: serviceId,
-                serviceId,
-                access: "eligible",
-                includedQuantity: 0,
-                period: null,
-                exhaustion: "paid",
-                pricing: { mode: "retail" },
-                ...patch,
-              },
-            ],
-          }
-        : p
-    );
-    return catalog;
-  };
-  it("fails closed for non-members when no baseline plan is active", () => {
-    for (const status of ["archived", "missing"]) {
-      const catalog = seedSnapshot();
-      catalog.plans =
-        status === "missing"
-          ? catalog.plans.filter((p) => !p.isBaseline)
-          : catalog.plans.map((p) => (p.isBaseline ? { ...p, status: "archived" } : p));
-      for (const service of ["red-light-therapy", "dexa-scan", "sanctuary"])
-        expect(ask(service, [], {}, catalog)).toMatchObject({
-          bookable: false,
-          denialReason: "NOT_ELIGIBLE",
-        });
-      expect(ask("red-light-therapy", ESSENTIAL, {}, catalog).finalCents).toBe(5400);
-    }
-  });
   it("an exhausted allowance never falls through to free pricing", () => {
     const catalog = withBenefit("aerwell-essential", "clinician-telehealth-visit", {
       includedQuantity: 2,
@@ -643,7 +652,7 @@ describe("review regressions", () => {
         "retail"
       );
     const cancelled = { memberships: [hold("aerwell-essential", START, { status: "cancelled" })] };
-    expect(ask("dexa-scan", [], { ...cancelled, episode }).decision).toBe("retail");
+    expect(ask("dexa-scan", [], { ...cancelled, episode }).denialReason).toBe("NOT_ELIGIBLE");
   });
   it("a purchased (retail) episode covers its unclaimed components without any membership", () => {
     const episode = {
@@ -663,13 +672,15 @@ describe("review regressions", () => {
     expect(
       ask("comprehensive-blood-panel", [], { episode, deliveryMethod: "mobile_phlebotomy" })
     ).toMatchObject({ decision: "episode_component", finalCents: 12000 });
-    // Claimed components and services outside the bundle are priced normally.
-    expect(ask("dexa-scan", [], { episode }).decision).toBe("retail");
-    expect(ask("clinician-telehealth-visit", [], { episode }).decision).toBe("retail");
+    // Claimed components and services outside the bundle are priced normally:
+    // for a non-member that is NOT_ELIGIBLE, for a member retail.
+    expect(ask("dexa-scan", [], { episode }).denialReason).toBe("NOT_ELIGIBLE");
+    expect(ask("clinician-telehealth-visit", [], { episode }).denialReason).toBe("NOT_ELIGIBLE");
+    expect(ask("dexa-scan", ESSENTIAL, { episode }).decision).toBe("retail");
     // Without the purchased marker a membership-less episode is ignored.
-    expect(ask("vo2-max-test", [], { episode: { ...episode, purchased: false } }).decision).toBe(
-      "retail"
-    );
+    expect(
+      ask("vo2-max-test", [], { episode: { ...episode, purchased: false } }).denialReason
+    ).toBe("NOT_ELIGIBLE");
   });
   it("an unknown or inactive market makes every service unavailable; no market keeps all-market services", () => {
     const catalog = seedSnapshot();
@@ -677,26 +688,27 @@ describe("review regressions", () => {
       m.id === "las-vegas" ? { ...m, active: false } : m
     );
     const mobile = { deliveryMethod: "mobile_phlebotomy" };
-    expect(ask("comprehensive-blood-panel", [], mobile, catalog).denialReason).toBe(
+    expect(ask("comprehensive-blood-panel", ESSENTIAL, mobile, catalog).denialReason).toBe(
       "MARKET_UNAVAILABLE"
     );
     expect(ask("clinician-telehealth-visit", [], { marketId: "nowhere" }).denialReason).toBe(
       "MARKET_UNAVAILABLE"
     );
-    expect(ask("clinician-telehealth-visit", [], { marketId: null }).finalCents).toBe(25000);
+    expect(ask("comprehensive-blood-panel", ESSENTIAL, { marketId: null }).finalCents).toBe(59500);
   });
   it("chooses the candidate with the lowest final amount including fees", () => {
-    const catalog = withBenefit("everhaus-member", "advanced-assessment", {
+    const catalog = withBenefit("aerwell-continuum", "advanced-assessment", {
       pricing: { mode: "custom", customPriceCents: 0 },
     });
     catalog.modifiers = catalog.modifiers.map((m) => ({ ...m, chargeWhenIncluded: false }));
     const q = ask(
       "advanced-assessment",
-      [...ESSENTIAL, ...EVERHAUS],
+      [...ESSENTIAL, ...CONTINUUM],
       { deliveryMethod: "mobile_phlebotomy" },
       catalog
     );
     expect(q).toMatchObject({ decision: "allowance", finalCents: 0 });
+    expect(q.selection?.planId).toBe("aerwell-essential");
   });
   it("explains denials by priority: exhausted > not purchasable > not eligible", () => {
     const exhausted = withBenefit("aerwell-essential", "assessment-clinician-review", {
@@ -712,6 +724,11 @@ describe("review regressions", () => {
       access: "ineligible",
     });
     expect(ask("assessment-clinician-review", ESSENTIAL, {}, ineligible).denialReason).toBe(
+      "NOT_ELIGIBLE"
+    );
+    // Continuum has no benefit for it and no retail price: not purchasable wins.
+    const both = [...ESSENTIAL, ...CONTINUUM];
+    expect(ask("assessment-clinician-review", both, {}, ineligible).denialReason).toBe(
       "NOT_PURCHASABLE"
     );
   });

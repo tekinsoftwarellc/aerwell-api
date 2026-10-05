@@ -60,12 +60,13 @@ it("books an included telehealth visit from the real allowance, snapshots the qu
   expect(await AuditEvent.exists({ targetType: "Appointment", action: "created" })).toBeTruthy();
 });
 
-it("denies by the evaluator's reason and never books: Free Everhaus, New York DEXA, bundles", async () => {
+it("denies by the evaluator's reason and never books: non-member, New York DEXA, bundles", async () => {
   const w = await bookingWorld();
   const free = await w.member();
-  const red = await w.api.post("/api/v1/appointments", w.booking(free._id, "red-light-therapy"));
-  expect(red.status).toBe(422);
-  expect(red.body.code).toBe("NOT_ELIGIBLE");
+  const essential = await w.member(["aerwell-essential"]);
+  const denied = await w.api.post("/api/v1/appointments", w.booking(free._id, "dexa-scan"));
+  expect(denied.status).toBe(422);
+  expect(denied.body.code).toBe("NOT_ELIGIBLE");
   const ny = await w.quoteOf({
     ...w.booking(free._id, "dexa-scan"),
     locationId: String(w.newYork._id),
@@ -77,7 +78,7 @@ it("denies by the evaluator's reason and never books: Free Everhaus, New York DE
   );
   expect(bundle.body.code).toBe("BUNDLE_REQUIRES_EPISODE");
   const retail = await w.quoteOf(
-    w.booking(free._id, "comprehensive-blood-panel", "09:00", {
+    w.booking(essential._id, "comprehensive-blood-panel", "09:00", {
       deliveryMethod: "mobile_phlebotomy",
     })
   );
@@ -92,32 +93,44 @@ it("denies by the evaluator's reason and never books: Free Everhaus, New York DE
 it("keeps the booked price snapshot when the plan changes, and refuses a stale quote", async () => {
   const w = await bookingWorld();
   const member = await w.member(["aerwell-continuum"]);
-  const body = w.booking(member._id, "red-light-therapy");
+  const plan = w.plans.get("aerwell-continuum");
+  const dexaDiscount = (discountBps: number) => ({
+    id: w.service("dexa-scan"),
+    serviceId: w.service("dexa-scan"),
+    access: "eligible",
+    includedQuantity: 0,
+    period: null,
+    exhaustion: "paid",
+    pricing: { mode: "discount", discountBps },
+  });
+  await MembershipPlan.updateOne(
+    { _id: plan?._id },
+    { $set: { benefits: [...(plan?.benefits ?? []), dexaDiscount(2000)] } }
+  );
+  const body = w.booking(member._id, "dexa-scan");
   const q = await w.quoteOf(body);
-  expect(q.body.data.finalCents).toBe(4800);
+  expect(q.body.data.finalCents).toBe(14000);
   const booked = await w.api.post("/api/v1/appointments", {
     ...body,
     expectedQuote: quoted(q.body),
   });
   expect(booked.status).toBe(201);
-  const plan = w.plans.get("aerwell-continuum");
-  const benefits = (plan?.benefits ?? []).map((b) =>
-    String(b.serviceId) === w.service("red-light-therapy")
-      ? { ...b, pricing: { mode: "discount", discountBps: 5000 } }
-      : b
-  );
+  const benefits = [...(plan?.benefits ?? []), dexaDiscount(5000)];
   await MembershipPlan.updateOne({ _id: plan?._id }, { $set: { benefits }, $inc: { version: 1 } });
   const detail = await w.api.get(`/api/v1/appointments/${booked.body.data.appointment._id}`);
-  expect(detail.body.data.price.finalCents).toBe(4800);
-  expect(detail.body.data.membership.name).toBe("Aerwell Continuum");
+  expect(detail.body.data.price.finalCents).toBe(14000);
+  expect(detail.body.data.membership).toEqual({
+    planId: String(plan?._id),
+    name: "Aerwell Continuum",
+  });
   // Same stale quote on a new booking: the server re-evaluates and refuses.
   const stale = await w.api.post("/api/v1/appointments", {
-    ...w.booking(member._id, "red-light-therapy", "11:00"),
+    ...w.booking(member._id, "dexa-scan", "11:00"),
     expectedQuote: quoted(q.body),
   });
   expect(stale.status).toBe(409);
   expect(stale.body.code).toBe("QUOTE_CHANGED");
-  expect(stale.body.data.quote.finalCents).toBe(3000);
+  expect(stale.body.data.quote.finalCents).toBe(8750);
 });
 
 it("replays an idempotency key, refuses its reuse and never double-books under concurrency", async () => {
@@ -145,8 +158,8 @@ it("replays an idempotency key, refuses its reuse and never double-books under c
 
 it("re-validates the slot: shift, business hours, PTO, overlap, grid, member clash, eligibility", async () => {
   const w = await bookingWorld();
-  const member = await w.member();
-  const other = await w.member();
+  const member = await w.member(["aerwell-essential"]);
+  const other = await w.member(["aerwell-essential"]);
   const book = (m: unknown, time: string, extra: object = {}) =>
     w.api.post("/api/v1/appointments", w.booking(m, "clinician-telehealth-visit", time, extra));
   expect((await book(member._id, "07:30")).body.code).toBe("SLOT_UNAVAILABLE"); // before shift
@@ -191,14 +204,13 @@ it("re-validates the slot: shift, business hours, PTO, overlap, grid, member cla
 
 it("lets a group service fill up to capacityMax in one slot", async () => {
   const w = await bookingWorld();
-  await Service.updateOne({ _id: w.service("everhaus-training") }, { capacityMax: 2 });
+  await Service.updateOne({ _id: w.service("dexa-scan") }, { capacityMax: 2 });
   const [a, b, c] = [
-    await w.member(["everhaus-member"]),
-    await w.member(["everhaus-member"]),
-    await w.member(["everhaus-member"]),
+    await w.member(["aerwell-essential"]),
+    await w.member(["aerwell-essential"]),
+    await w.member(["aerwell-essential"]),
   ];
-  const book = (m: unknown) =>
-    w.api.post("/api/v1/appointments", w.booking(m, "everhaus-training"));
+  const book = (m: unknown) => w.api.post("/api/v1/appointments", w.booking(m, "dexa-scan"));
   expect((await book(a._id)).status).toBe(201);
   expect((await book(b._id)).status).toBe(201);
   expect((await book(c._id)).body.code).toBe("SLOT_UNAVAILABLE");
@@ -206,7 +218,7 @@ it("lets a group service fill up to capacityMax in one slot", async () => {
 
 it("own-scope staff can only book themselves; permissions are enforced", async () => {
   const w = await bookingWorld();
-  const member = await w.member();
+  const member = await w.member(["aerwell-essential"]);
   const { Role } = await import("../role/role.model.js");
   const role = await Role.findById(w.provider.role._id).lean();
   await Role.updateOne(
@@ -313,7 +325,7 @@ it("serializes concurrent last-unit bookings: only one writer ever attempts the 
 
 it("review LOW: an idempotency key reused for another provider is refused, not replayed", async () => {
   const w = await bookingWorld();
-  const member = await w.member();
+  const member = await w.member(["aerwell-essential"]);
   const body = {
     ...w.booking(member._id, "clinician-telehealth-visit"),
     idempotencyKey: "key-abcdefgh",
@@ -328,7 +340,7 @@ it("review LOW: an idempotency key reused for another provider is refused, not r
 
 it("W11: two members racing for one provider slot: only one writer ever attempts the insert", async () => {
   const w = await bookingWorld();
-  const [ann, bob] = [await w.member(), await w.member()];
+  const [ann, bob] = [await w.member(["aerwell-essential"]), await w.member(["aerwell-essential"])];
   // Barrier after the capacity read: without the provider lock both writers
   // would see the slot free before either inserts.
   let readers = 0;

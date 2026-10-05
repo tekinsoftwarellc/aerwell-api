@@ -135,7 +135,7 @@ export async function searchMembers(req: Request) {
       avatarUrl: null,
       brandLabel: brands.get(String(row._id)) ?? null,
     })),
-    // Everhaus members via the Alfred platform need a verified service contract.
+    // Alfred platform member search is not configured yet.
     externalSearch: "unconfigured",
   };
 }

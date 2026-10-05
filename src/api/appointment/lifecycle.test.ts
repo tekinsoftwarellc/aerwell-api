@@ -89,7 +89,7 @@ it("cancels outside the window with a release; inside it records the fee or forf
   const w = await bookingWorld();
   await shiftFor(w.provider.staff._id, w.vegas._id, SOON);
   await Service.updateMany(
-    { _id: { $in: [w.service("clinician-telehealth-visit"), w.service("red-light-therapy")] } },
+    { _id: { $in: [w.service("clinician-telehealth-visit"), w.service("dexa-scan")] } },
     { lateCancellationFee: { enabled: true, amountCents: 5000, windowHours: 24 } }
   );
   const early = await booked(w, ["aerwell-essential"], "clinician-telehealth-visit");
@@ -111,7 +111,7 @@ it("cancels outside the window with a release; inside it records the fee or forf
   const twice = await w.api.post(`/api/v1/appointments/${early.id}/cancel`, { reason: "again" });
   expect(twice.body.code).toBe("INVALID_STATUS_TRANSITION");
   // Inside the window: a paid booking records the fee as amount due (payments unconfigured).
-  const paid = await bookSoon(w, ["aerwell-essential"], "red-light-therapy", "09:00");
+  const paid = await bookSoon(w, ["aerwell-essential"], "dexa-scan", "09:00");
   const late = await w.api.post(`/api/v1/appointments/${paid}/cancel`, { reason: "Sick" });
   expect(late.body.data).toMatchObject({
     amountDueCents: 5000,
@@ -197,7 +197,7 @@ it("reschedules atomically: re-quotes into the new benefit period and moves the 
   const again = await w.quoteOf(w.booking(member._id, "clinician-telehealth-visit", "13:00"));
   expect(again.body.data).toMatchObject({ decision: "allowance", finalCents: 0 });
   // A slot conflict aborts the reschedule and keeps the original reservation.
-  const other = await w.member();
+  const other = await w.member(["aerwell-essential"]);
   await w.api.post("/api/v1/appointments", {
     ...w.booking(other._id, "clinician-telehealth-visit"),
     startAt: at("2028-01-20", "11:00").toISOString(),
@@ -211,7 +211,7 @@ it("reschedules atomically: re-quotes into the new benefit period and moves the 
 
 it("reschedule to a place outside the market is refused atomically", async () => {
   const w = await bookingWorld();
-  const { id } = await booked(w, [], "dexa-scan");
+  const { id } = await booked(w, ["aerwell-essential"], "dexa-scan");
   await Service.updateOne({ _id: w.service("dexa-scan") }, { $set: { marketIds: [] } });
   const res = await w.api.post(`/api/v1/appointments/${id}/reschedule`, {
     startAt: at(DAY, "11:00").toISOString(),

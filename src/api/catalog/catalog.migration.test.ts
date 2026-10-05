@@ -25,8 +25,8 @@ async function legacyState() {
       },
       {
         organizationId: ORG,
-        name: "Everhaus",
-        brand: "everhaus",
+        name: "Partner",
+        brand: "partner",
         tiers: [{ id: "membership", name: "Membership" }],
       },
     ])
@@ -77,7 +77,7 @@ it("the deployed brand index blocks the new plans until the migration drops it",
       status: "active",
       slug: { $type: "string" },
     })
-  ).toBe(4);
+  ).toBe(2);
   const indexes = (await MembershipPlan.collection.indexes()).map((i) => i.name);
   expect(indexes).not.toContain(LEGACY_INDEX);
 });
@@ -98,13 +98,13 @@ it("archives legacy tier plans, strips tier access and backfills safe service de
     .toArray();
   for (const s of services) {
     expect(s).toMatchObject({
-      owner: "aerwell",
       modality: "physical",
       marketScope: "listed",
       marketIds: [],
       bundleComponentIds: [],
       version: 0,
     });
+    expect(s["owner"]).toBeUndefined();
     expect(s["membershipAccess"]).toBeUndefined();
   }
   expect(services.map((s) => s["slug"])).toEqual([

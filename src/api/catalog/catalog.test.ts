@@ -63,11 +63,11 @@ describe("client catalog seed", () => {
   it("seeds every client price idempotently without overwriting edits", async () => {
     await Service.updateOne({ _id: ids["dexa-scan"] }, { $set: { basePriceCents: 18000 } });
     await seedCatalog(ORG);
-    expect(await Service.countDocuments({ organizationId: ORG })).toBe(12);
-    expect(await MembershipPlan.countDocuments({ organizationId: ORG })).toBe(4);
+    expect(await Service.countDocuments({ organizationId: ORG })).toBe(6);
+    expect(await MembershipPlan.countDocuments({ organizationId: ORG })).toBe(2);
     expect(await Market.countDocuments({ organizationId: ORG })).toBe(1);
     expect(await DeliveryModifier.countDocuments({ organizationId: ORG })).toBe(1);
-    expect(await ServiceCategory.countDocuments({ organizationId: ORG })).toBe(8);
+    expect(await ServiceCategory.countDocuments({ organizationId: ORG })).toBe(7);
     expect((await Service.findById(ids["dexa-scan"]))?.basePriceCents).toBe(18000);
     const prices = Object.fromEntries(
       (await Service.find({ organizationId: ORG })).map((s) => [s.slug, s.basePriceCents])
@@ -79,21 +79,13 @@ describe("client catalog seed", () => {
       "clinician-telehealth-visit": 25000,
       "assessment-clinician-review": null,
       "advanced-assessment": 99500,
-      "red-light-therapy": 6000,
-      "hyperbaric-oxygen-therapy": 15000,
-      "autonomous-massage-therapy": 10000,
-      "everhaus-training": 7500,
-      "personal-training": 15000,
-      sanctuary: null,
     });
     const plans = (await get("/membership-plans")).body.data;
     expect(
       plans.map((p: { slug: string; priceCents: number | null }) => [p.slug, p.priceCents])
     ).toEqual([
-      ["alfred-free", 0],
       ["aerwell-continuum", 29900],
       ["aerwell-essential", 19900],
-      ["everhaus-member", null],
     ]);
     const bundle = await Service.findById(ids["advanced-assessment"]);
     expect(bundle?.bundleComponentIds.map(String).sort()).toEqual(
@@ -103,16 +95,14 @@ describe("client catalog seed", () => {
     );
     expect((await DeliveryModifier.findById(ids["mobile"]))?.amountCents).toBe(12000);
   });
-  it("filters services by owner on both sides", async () => {
-    for (const [owner, total] of [
-      ["aerwell", 6],
-      ["everhaus", 6],
-    ] as const)
-      expect((await get(`/services?owner=${owner}&limit=100`)).body.data.pagination.total).toBe(
-        total
-      );
-    expect((await get("/services?limit=100")).body.data.pagination.total).toBe(12);
-    expect((await get("/services?owner=alfred")).status).toBe(400);
+  it("services carry no owner and the owner filter is gone", async () => {
+    const list = (await get("/services?limit=100")).body.data;
+    expect(list.pagination.total).toBe(6);
+    expect(list.items.every((s: Record<string, unknown>) => !("owner" in s))).toBe(true);
+    expect((await get("/services?owner=aerwell")).status).toBe(400);
+    const plans = (await get("/membership-plans")).body.data as Record<string, unknown>[];
+    for (const field of ["brand", "isBaseline", "restrictedOwners"])
+      expect(plans.some((p) => field in p)).toBe(false);
   });
 });
 
@@ -134,16 +124,18 @@ describe("seeded database quotes (loader + pure evaluator)", () => {
         })),
         ...extra,
       });
+    const essential = ["aerwell-essential"];
     expect(
-      quote("comprehensive-blood-panel", [], { deliveryMethod: "mobile_phlebotomy" }).finalCents
+      quote("comprehensive-blood-panel", essential, { deliveryMethod: "mobile_phlebotomy" })
+        .finalCents
     ).toBe(71500);
-    expect(quote("dexa-scan", [], { marketId: null }).denialReason).toBe("MARKET_UNAVAILABLE");
-    expect(quote("red-light-therapy", []).denialReason).toBe("NOT_ELIGIBLE");
-    expect(quote("everhaus-training", ["aerwell-essential"]).finalCents).toBe(6750);
-    expect(quote("personal-training", ["aerwell-continuum"]).finalCents).toBe(12000);
-    expect(quote("sanctuary", ["everhaus-member"]).finalCents).toBe(0);
-    expect(quote("sanctuary", ["aerwell-essential"]).denialReason).toBe("NOT_ELIGIBLE");
-    expect(quote("advanced-assessment", ["aerwell-essential"]).decision).toBe("allowance");
+    expect(quote("dexa-scan", essential, { marketId: null }).denialReason).toBe(
+      "MARKET_UNAVAILABLE"
+    );
+    expect(quote("dexa-scan", []).denialReason).toBe("NOT_ELIGIBLE");
+    expect(quote("dexa-scan", essential)).toMatchObject({ decision: "retail", finalCents: 17500 });
+    expect(quote("vo2-max-test", ["aerwell-continuum"]).finalCents).toBe(17500);
+    expect(quote("advanced-assessment", essential).decision).toBe("allowance");
   });
 });
 
@@ -185,6 +177,7 @@ describe("configuration edits through the API change quotes", () => {
     const mobile = {
       serviceId: ids["comprehensive-blood-panel"],
       deliveryMethod: "mobile_phlebotomy",
+      memberships: member("aerwell-essential"),
     };
     expect((await preview(mobile)).body.data.finalCents).toBe(71500);
     expect(
@@ -226,15 +219,12 @@ describe("configuration edits through the API change quotes", () => {
     expect(
       (
         await preview({
-          serviceId: ids["sanctuary"],
-          memberships: [...member("alfred-free"), ...member("alfred-free")],
+          serviceId: ids["dexa-scan"],
+          memberships: [...member("aerwell-essential"), ...member("aerwell-essential")],
         })
       ).status
     ).toBe(400);
-    const denied = await preview({
-      serviceId: ids["sanctuary"],
-      memberships: member("aerwell-essential"),
-    });
+    const denied = await preview({ serviceId: ids["dexa-scan"] });
     expect(denied.body.data).toMatchObject({ bookable: false, denialReason: "NOT_ELIGIBLE" });
     expect(
       (await preview({ serviceId: String(new Types.ObjectId()) })).body.data.denialReason
@@ -251,7 +241,6 @@ describe("membership plan validation", () => {
   const plan = (patch: Record<string, unknown> = {}): Record<string, unknown> => ({
     slug: "trial-plan",
     name: "Trial",
-    brand: "aerwell",
     priceCents: 5000,
     billingTerm: "monthly",
     benefits: [],
@@ -291,7 +280,7 @@ describe("membership plan validation", () => {
       {
         benefits: [
           {
-            serviceId: "sanctuary",
+            serviceId: "assessment-clinician-review",
             access: "eligible",
             pricing: { mode: "discount", discountBps: 1000 },
           },
@@ -370,21 +359,9 @@ describe("membership plan validation", () => {
       },
     ],
     ["an unknown service", { benefits: [{ serviceId: "missing", access: "eligible" }] }],
-    [
-      "baseline allowances",
-      {
-        isBaseline: true,
-        status: "archived",
-        benefits: [
-          {
-            serviceId: "dexa-scan",
-            access: "eligible",
-            includedQuantity: 1,
-            period: { unit: "year" },
-          },
-        ],
-      },
-    ],
+    ["a removed brand field", { brand: "aerwell" }],
+    ["a removed baseline flag", { isBaseline: false }],
+    ["removed restricted owners", { restrictedOwners: [] }],
     ["fractional plan price", { priceCents: 19.99 }],
     [
       "an allowance priced as included",
@@ -423,37 +400,18 @@ describe("membership plan validation", () => {
     }));
     expect((await send("post", "/membership-plans", body)).status).toBe(400);
   });
-  it("allows one active baseline, rejects legacy edits and unknown ids", async () => {
-    const second = await send("post", "/membership-plans", plan({ isBaseline: true }));
-    expect(second.status).toBe(409);
-    expect(second.body.code).toBe("BASELINE_EXISTS");
-    expect(
-      (
-        await send("patch", `/membership-plans/${ids["alfred-free"]}`, {
-          name: "Alfred Free (renamed)",
-        })
-      ).status
-    ).toBe(200);
-    const legacy = await MembershipPlan.create({
-      organizationId: ORG,
-      name: "Aerwell",
-      brand: "aerwell",
-    });
+  it("rejects legacy edits and unknown ids", async () => {
+    const essential = `/membership-plans/${ids["aerwell-essential"]}`;
+    expect((await send("patch", essential, { name: "Essential (renamed)" })).status).toBe(200);
+    const legacy = await MembershipPlan.create({ organizationId: ORG, name: "Aerwell" });
     expect((await send("patch", `/membership-plans/${legacy._id}`, { name: "x" })).status).toBe(
       400
     );
-    expect((await get("/membership-plans")).body.data).toHaveLength(4);
+    expect((await get("/membership-plans")).body.data).toHaveLength(2);
     expect((await get(`/membership-plans/${new Types.ObjectId()}`)).status).toBe(404);
-    expect(
-      (await send("patch", `/membership-plans/${ids["alfred-free"]}`, { slug: "renamed" })).status
-    ).toBe(400);
-    expect((await send("patch", `/membership-plans/${ids["alfred-free"]}`, {})).status).toBe(400);
-    const foreign = await MembershipPlan.create({
-      organizationId: "other",
-      slug: "x",
-      name: "X",
-      brand: "aerwell",
-    });
+    expect((await send("patch", essential, { slug: "renamed" })).status).toBe(400);
+    expect((await send("patch", essential, {})).status).toBe(400);
+    const foreign = await MembershipPlan.create({ organizationId: "other", slug: "x", name: "X" });
     expect((await get(`/membership-plans/${foreign._id}`)).status).toBe(404);
   });
 });
@@ -490,8 +448,13 @@ describe("markets and delivery modifiers", () => {
     });
     await send("patch", `/markets/${created.body.data.id}`, { active: true });
     expect(
-      (await preview({ serviceId: ids["dexa-scan"], marketId: created.body.data.id })).body.data
-        .finalCents
+      (
+        await preview({
+          serviceId: ids["dexa-scan"],
+          marketId: created.body.data.id,
+          memberships: member("aerwell-essential"),
+        })
+      ).body.data.finalCents
     ).toBe(17500);
   });
   it("validates delivery modifiers", async () => {
@@ -533,12 +496,7 @@ describe("markets and delivery modifiers", () => {
 
 describe("permissions", () => {
   const writes: [string, "post" | "patch", () => string, () => unknown][] = [
-    [
-      "BILLING",
-      "post",
-      () => "/membership-plans",
-      () => ({ slug: "p2", name: "P2", brand: "aerwell" }),
-    ],
+    ["BILLING", "post", () => "/membership-plans", () => ({ slug: "p2", name: "P2" })],
     [
       "BILLING",
       "patch",
@@ -616,37 +574,32 @@ describe("concurrent configuration writes", () => {
 });
 
 describe("configuration guards from review", () => {
-  it("keeps exactly one active baseline and never lets it grant a restricted owner", async () => {
-    const free = `/membership-plans/${ids["alfred-free"]}`;
-    for (const body of [{ status: "archived" }, { isBaseline: false }]) {
-      const r = await send("patch", free, body);
-      expect(r.status).toBe(409);
-      expect(r.body.code).toBe("BASELINE_REQUIRED");
-    }
-    const everhaus = {
-      serviceId: ids["red-light-therapy"],
-      access: "eligible",
-      pricing: { mode: "retail" },
-    };
-    expect((await send("patch", free, { benefits: [everhaus] })).status).toBe(400);
-    expect(
-      (await send("patch", free, { benefits: [{ ...everhaus, access: "ineligible" }] })).status
-    ).toBe(200);
-    const aerwell = {
-      serviceId: ids["dexa-scan"],
-      access: "eligible",
-      pricing: { mode: "discount", discountBps: 500 },
-    };
-    expect((await send("patch", free, { benefits: [aerwell] })).status).toBe(200);
-  });
   it("refuses a retail change that would break a plan benefit", async () => {
     const patch = (slug: string, body: Record<string, unknown>) =>
       send("patch", `/services/${ids[slug]}`, body);
-    const discounted = await patch("red-light-therapy", { basePriceCents: null });
+    const addBenefit = async (planSlug: string, benefit: Record<string, unknown>) => {
+      const plan = (await get(`/membership-plans/${ids[planSlug]}`)).body.data;
+      const benefits = [
+        ...plan.benefits.map(({ id, ...b }: { id: string }) => b),
+        { ...benefit, serviceId: ids[String(benefit["serviceId"])] },
+      ];
+      expect((await send("patch", `/membership-plans/${plan.id}`, { benefits })).status).toBe(200);
+    };
+    await addBenefit("aerwell-essential", {
+      serviceId: "dexa-scan",
+      access: "eligible",
+      pricing: { mode: "discount", discountBps: 1000 },
+    });
+    await addBenefit("aerwell-continuum", {
+      serviceId: "assessment-clinician-review",
+      access: "exclusive",
+      pricing: { mode: "included" },
+    });
+    const discounted = await patch("dexa-scan", { basePriceCents: null });
     expect(discounted.status).toBe(400);
-    expect(discounted.body.message).toMatch(/Aerwell (Essential|Continuum)/);
-    expect((await patch("sanctuary", { basePriceCents: 5000 })).status).toBe(400);
-    expect((await patch("red-light-therapy", { basePriceCents: 7000 })).status).toBe(200);
-    expect((await patch("dexa-scan", { basePriceCents: null })).status).toBe(200);
+    expect(discounted.body.message).toMatch(/Aerwell Essential/);
+    expect((await patch("assessment-clinician-review", { basePriceCents: 5000 })).status).toBe(400);
+    expect((await patch("dexa-scan", { basePriceCents: 18000 })).status).toBe(200);
+    expect((await patch("vo2-max-test", { basePriceCents: null })).status).toBe(200);
   });
 });

@@ -26,8 +26,8 @@ const row = async (
   Appointment.create({
     organizationId: ORG,
     memberId,
-    serviceId: w.service("red-light-therapy"),
-    categoryId: (await Service.findById(w.service("red-light-therapy")).lean())?.categoryId,
+    serviceId: w.service("dexa-scan"),
+    categoryId: (await Service.findById(w.service("dexa-scan")).lean())?.categoryId,
     providerId,
     locationId: w.vegas._id,
     startAt: at(date, time),
@@ -106,7 +106,7 @@ it("lists today's count and the next three upcoming appointments in start order"
   ]);
   expect(data.appointments.upcoming[0]).toMatchObject({
     status: "booked",
-    service: { title: "Red Light Therapy" },
+    service: { title: "DEXA Scan" },
     provider: { displayName: "Dr. Diebel" },
     location: { name: "Aerwell Las Vegas" },
   });

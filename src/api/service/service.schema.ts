@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { OWNERS } from "../entitlement/entitlement.types.js";
 export const objectId = z.string().regex(/^[a-f\d]{24}$/i, "Choose a valid record");
 export const cents = z.number().int().min(0).max(100_000_000);
 export const slug = z
@@ -21,7 +20,6 @@ const serviceObject = z
     description: z.string().trim().max(3000).default(""),
     status: z.enum(["active", "inactive"]).default("active"),
     slug: slug.optional(),
-    owner: z.enum(OWNERS).default("aerwell"),
     modality: z.enum(["physical", "virtual"]).default("physical"),
     marketScope: z.enum(["all", "listed"]).default("listed"),
     marketIds: uniqueIds(50, "Markets"),
@@ -100,7 +98,6 @@ export const listSchema = z
     q: z.string().trim().max(160).optional(),
     status: z.enum(["active", "inactive"]).optional(),
     categoryId: objectId.optional(),
-    owner: z.enum(OWNERS).optional(),
     page: z.coerce.number().int().min(1).default(1),
     limit: z.coerce.number().int().min(1).max(100).default(20),
   })
