@@ -123,26 +123,35 @@ const withBenefit = (planId: string, serviceId: string, patch: Partial<BenefitCo
   return catalog;
 };
 
-describe("acceptance: non-members", () => {
-  it("a member with no current membership is NOT_ELIGIBLE for every service", () => {
-    for (const { slug } of seedServices) {
+const PAY_PER_USE = { membershipId: null, planId: null, benefitId: null };
+
+describe("acceptance: non-members pay per use", () => {
+  it("a member with no current membership pays retail for every service that has a price", () => {
+    for (const { slug, retailCents } of seedServices) {
       const q = ask(slug, []);
+      if (retailCents === null) {
+        expect(q).toMatchObject({ bookable: false, denialReason: "NOT_PURCHASABLE" });
+        continue;
+      }
       expect(q).toMatchObject({
-        bookable: false,
-        denialReason: "NOT_ELIGIBLE",
-        selection: null,
-        finalCents: null,
+        bookable: true,
+        decision: "retail",
+        selection: PAY_PER_USE,
+        allowance: null,
+        finalCents: retailCents,
       });
-      expect(q.candidates).toEqual([]);
     }
-    // Lapsed and future memberships are not current either.
+    // Lapsed and future memberships are not current either: retail, no allowance.
     const lapsed = [hold("aerwell-essential", START, { endsAt: new Date("2026-02-01") })];
-    expect(ask("dexa-scan", [], { memberships: lapsed }).denialReason).toBe("NOT_ELIGIBLE");
+    expect(ask("advanced-assessment", [], { memberships: lapsed })).toMatchObject({
+      decision: "retail",
+      selection: PAY_PER_USE,
+    });
   });
-  it("a non-member is NOT_ELIGIBLE even with a delivery method and a retail price", () => {
+  it("a non-member pays retail plus the mobile phlebotomy fee", () => {
     expect(
       ask("comprehensive-blood-panel", [], { deliveryMethod: "mobile_phlebotomy" })
-    ).toMatchObject({ bookable: false, denialReason: "NOT_ELIGIBLE", feesCents: 0 });
+    ).toMatchObject({ bookable: true, decision: "retail", feesCents: 12000, finalCents: 71500 });
   });
 });
 
@@ -249,8 +258,9 @@ describe("acceptance: configured benefit pricing", () => {
       episode: { ...episode, fulfilledServiceIds: ["comprehensive-blood-panel"] },
     });
     expect(repeat).toMatchObject({ decision: "retail", finalCents: 59500 });
+    // Someone else's episode gives a non-member nothing: retail, pay per use.
     const foreign = ask("comprehensive-blood-panel", [], { episode });
-    expect(foreign.denialReason).toBe("NOT_ELIGIBLE");
+    expect(foreign).toMatchObject({ decision: "retail", selection: PAY_PER_USE });
     expect(ask("clinician-telehealth-visit", ESSENTIAL, { episode }).decision).toBe("allowance");
   });
 });
@@ -500,19 +510,21 @@ describe("availability, delivery and state guards", () => {
       { endsAt: new Date("2026-02-01T00:00:00.000Z") },
     ])
       expect(
-        ask("dexa-scan", [], { memberships: [hold("aerwell-essential", START, extra)] }).bookable
-      ).toBe(false);
+        ask("advanced-assessment", [], {
+          memberships: [hold("aerwell-essential", START, extra)],
+        }).selection
+      ).toEqual(PAY_PER_USE);
     expect(
-      ask("dexa-scan", [], {
+      ask("advanced-assessment", [], {
         memberships: [hold("aerwell-essential", new Date("2026-06-01T00:00:00.000Z"))],
-      }).bookable
-    ).toBe(false);
+      }).selection
+    ).toEqual(PAY_PER_USE);
     const catalog = seedSnapshot();
     catalog.plans = catalog.plans.map((p) =>
       p.id === "aerwell-essential" ? { ...p, status: "archived" } : p
     );
-    expect(ask("dexa-scan", ESSENTIAL, {}, catalog).bookable).toBe(false);
-    expect(ask("dexa-scan", ["unknown-plan"]).bookable).toBe(false);
+    expect(ask("dexa-scan", ESSENTIAL, {}, catalog).selection).toEqual(PAY_PER_USE);
+    expect(ask("dexa-scan", ["unknown-plan"]).selection).toEqual(PAY_PER_USE);
     expect(ask("dexa-scan", ESSENTIAL).bookable).toBe(true);
   });
   it("refuses services without a retail price to holders without a benefit for them", () => {
@@ -652,7 +664,10 @@ describe("review regressions", () => {
         "retail"
       );
     const cancelled = { memberships: [hold("aerwell-essential", START, { status: "cancelled" })] };
-    expect(ask("dexa-scan", [], { ...cancelled, episode }).denialReason).toBe("NOT_ELIGIBLE");
+    expect(ask("dexa-scan", [], { ...cancelled, episode })).toMatchObject({
+      decision: "retail",
+      selection: PAY_PER_USE,
+    });
   });
   it("a purchased (retail) episode covers its unclaimed components without any membership", () => {
     const episode = {
@@ -673,14 +688,17 @@ describe("review regressions", () => {
       ask("comprehensive-blood-panel", [], { episode, deliveryMethod: "mobile_phlebotomy" })
     ).toMatchObject({ decision: "episode_component", finalCents: 12000 });
     // Claimed components and services outside the bundle are priced normally:
-    // for a non-member that is NOT_ELIGIBLE, for a member retail.
-    expect(ask("dexa-scan", [], { episode }).denialReason).toBe("NOT_ELIGIBLE");
-    expect(ask("clinician-telehealth-visit", [], { episode }).denialReason).toBe("NOT_ELIGIBLE");
+    // retail for everyone (pay per use for a non-member).
+    expect(ask("dexa-scan", [], { episode })).toMatchObject({
+      decision: "retail",
+      finalCents: 17500,
+    });
+    expect(ask("clinician-telehealth-visit", [], { episode }).decision).toBe("retail");
     expect(ask("dexa-scan", ESSENTIAL, { episode }).decision).toBe("retail");
     // Without the purchased marker a membership-less episode is ignored.
-    expect(
-      ask("vo2-max-test", [], { episode: { ...episode, purchased: false } }).denialReason
-    ).toBe("NOT_ELIGIBLE");
+    expect(ask("vo2-max-test", [], { episode: { ...episode, purchased: false } }).decision).toBe(
+      "retail"
+    );
   });
   it("an unknown or inactive market makes every service unavailable; no market keeps all-market services", () => {
     const catalog = seedSnapshot();
