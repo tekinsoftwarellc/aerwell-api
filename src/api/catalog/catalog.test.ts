@@ -132,7 +132,7 @@ describe("seeded database quotes (loader + pure evaluator)", () => {
     expect(quote("dexa-scan", essential, { marketId: null }).denialReason).toBe(
       "MARKET_UNAVAILABLE"
     );
-    expect(quote("dexa-scan", []).denialReason).toBe("NOT_ELIGIBLE");
+    expect(quote("dexa-scan", [])).toMatchObject({ decision: "retail", finalCents: 17500 });
     expect(quote("dexa-scan", essential)).toMatchObject({ decision: "retail", finalCents: 17500 });
     expect(quote("vo2-max-test", ["aerwell-continuum"]).finalCents).toBe(17500);
     expect(quote("advanced-assessment", essential).decision).toBe("allowance");
@@ -224,8 +224,8 @@ describe("configuration edits through the API change quotes", () => {
         })
       ).status
     ).toBe(400);
-    const denied = await preview({ serviceId: ids["dexa-scan"] });
-    expect(denied.body.data).toMatchObject({ bookable: false, denialReason: "NOT_ELIGIBLE" });
+    const payPerUse = await preview({ serviceId: ids["dexa-scan"] });
+    expect(payPerUse.body.data).toMatchObject({ bookable: true, decision: "retail" });
     expect(
       (await preview({ serviceId: String(new Types.ObjectId()) })).body.data.denialReason
     ).toBe("SERVICE_NOT_FOUND");

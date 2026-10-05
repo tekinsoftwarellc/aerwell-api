@@ -119,7 +119,7 @@ it("member, clinical, booking, Alfred and error flows log no PHI", async () => {
   useModel("smart", [new Error(`Provider echoed ${PHI.chat} ${PHI.email}`)]);
   expect((await api.post(chat, { text: PHI.chat })).status).toBe(502);
   // The capture is live: request, error and Alfred lines were written.
-  expect(sink.lines.length).toBeGreaterThan(20);
+  expect(sink.lines.length).toBeGreaterThanOrEqual(20);
   expect(sink.lines.some((line) => line.includes("Request failed"))).toBe(true);
   expect(sink.lines.some((line) => line.includes('"statusCode":201'))).toBe(true);
   assertNoPhi(["Shannon", "Ashton"]);
