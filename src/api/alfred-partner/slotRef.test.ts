@@ -12,18 +12,19 @@ it("round-trips, and is opaque url-safe text", () => {
   expect(ref).toMatch(/^[A-Za-z0-9_-]+$/);
   expect(decodeSlotRef(ref)).toEqual(parts);
 });
+it("stays under Alfred's 128-character limit for the longest service slug", () => {
+  const ref = encodeSlotRef({ ...parts, slug: "assessment-clinician-review" });
+  expect(ref.length).toBeLessThanOrEqual(128);
+  expect(decodeSlotRef(ref)?.slug).toBe("assessment-clinician-review");
+});
 it("decodes anything malformed, foreign or tampered to null", () => {
-  const good = Buffer.from(
-    `v1|dexa-scan|${parts.locationId}|${parts.providerId}|2027-03-10T17:00:00.000Z`
-  );
-  const enc = (s: string) => Buffer.from(s).toString("base64url");
+  const good = Buffer.from(encodeSlotRef(parts), "base64url");
+  const enc = (b: Buffer) => b.toString("base64url");
   expect(decodeSlotRef("")).toBeNull();
   expect(decodeSlotRef("not a ref")).toBeNull();
-  expect(decodeSlotRef(enc(good.toString().replace("v1|", "v2|")))).toBeNull();
-  expect(decodeSlotRef(enc(good.toString().replace(parts.locationId, "nope")))).toBeNull();
+  expect(decodeSlotRef(enc(good.subarray(0, 29)))).toBeNull(); // no slug
+  expect(decodeSlotRef(enc(Buffer.concat([Buffer.from([2]), good.subarray(1)])))).toBeNull();
   expect(
-    decodeSlotRef(enc(good.toString().replace("2027-03-10T17:00:00.000Z", "soon")))
+    decodeSlotRef(Buffer.from("v1|dexa-scan|a|b|2027-03-10T17:00:00.000Z").toString("base64url"))
   ).toBeNull();
-  expect(decodeSlotRef(enc(`${good.toString()}|extra`))).toBeNull();
-  expect(decodeSlotRef(enc("v1|||||"))).toBeNull();
 });

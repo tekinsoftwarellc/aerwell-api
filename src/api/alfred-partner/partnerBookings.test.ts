@@ -18,6 +18,7 @@ import { MemberMembership } from "../member/member.model.js";
 import { Service } from "../service/service.model.js";
 import { StaffMember } from "../staff/staff.model.js";
 import { PartnerIdempotencyKey } from "./partnerIdempotency.model.js";
+import { encodeSlotRef } from "./slotRef.js";
 
 beforeEach(() => {
   pinClock();
@@ -259,9 +260,12 @@ describe("POST /bookings", () => {
       const blood = await w.slotAt("comprehensive-blood-panel", "11:00", DAY, {
         locationRef: String(w.newYork._id),
       });
-      const forged = Buffer.from(
-        `v1|dexa-scan|${w.newYork._id}|${w.provider.staff._id}|${blood.startAt}`
-      ).toString("base64url");
+      const forged = encodeSlotRef({
+        slug: "dexa-scan",
+        locationId: String(w.newYork._id),
+        providerId: String(w.provider.staff._id),
+        startAt: new Date(blood.startAt),
+      });
       const res = await w.alfred.post("/bookings", {
         ...w.bodyFor("dexa-scan", blood, { slotRef: forged, locationRef: String(w.newYork._id) }),
       });
