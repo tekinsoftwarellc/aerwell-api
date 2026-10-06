@@ -217,16 +217,21 @@ export async function cancelEpisode(req: Request) {
           cancellation: {
             at: now,
             byId: staff._id,
+            by: "staff",
             reason,
             late: false,
             feeCents: 0,
             allowance: "none",
           },
-          amountDueCents: 0,
-          paymentStatus: "not_required",
         },
         $push: { statusHistory: { status: "cancelled", at: now, byId: staff._id } },
       },
+      { session }
+    );
+    // Aerwell's own bookings owe nothing now; an Alfred-paid one keeps the payment Alfred recorded.
+    await Appointment.updateMany(
+      { _id: { $in: dropped.map((d) => d._id) }, externalPayment: { $exists: false } },
+      { $set: { amountDueCents: 0, paymentStatus: "not_required" } },
       { session }
     );
     for (const row of dropped)

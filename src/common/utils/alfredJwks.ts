@@ -15,6 +15,7 @@ export type AlfredKeyProvider = (kid: string) => Promise<string>;
 const JWKS_CACHE_TTL_MS = 10 * 60 * 1000;
 /** A forced re-fetch needs the cache to be this old, so random `kid`s cannot make us hammer alfred-auth. */
 const MIN_REFETCH_INTERVAL_MS = 30 * 1000;
+const JWKS_TIMEOUT_MS = 5_000;
 
 interface JwksResponse {
   keys: (JsonWebKey & { kid?: string })[];
@@ -24,8 +25,9 @@ export const createJwksKeyProvider = (url: string): AlfredKeyProvider => {
   let cache: { pems: Map<string, string>; fetchedAt: number } | null = null;
 
   const load = async (): Promise<Map<string, string>> => {
-    const res = await fetch(url);
-    if (!res.ok) throw new UnauthorizedError("Unable to verify token signing key");
+    const res = await fetch(url, { signal: AbortSignal.timeout(JWKS_TIMEOUT_MS) });
+    // Not a verdict on the caller: alfred-auth is unreachable or unwell, which callers answer as 503.
+    if (!res.ok) throw new Error("JWKS endpoint unavailable");
     const body = (await res.json()) as JwksResponse;
     const pems = new Map<string, string>();
     for (const jwk of body.keys ?? []) {

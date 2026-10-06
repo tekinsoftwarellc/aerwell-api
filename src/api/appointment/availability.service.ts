@@ -141,6 +141,8 @@ async function roomOccupancy(
   return Appointment.find({
     organizationId: service.organizationId,
     serviceId: { $in: sharing },
+    // A delivery away from the clinic (mobile phlebotomy) never occupied the room.
+    deliveryMethod: { $in: [STANDARD_DELIVERY, null] },
     status: { $in: LIVE_STATUSES },
     startAt: { $lt: range.end },
     endAt: { $gt: range.start },

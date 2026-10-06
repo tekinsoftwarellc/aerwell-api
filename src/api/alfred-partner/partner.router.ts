@@ -4,7 +4,6 @@ import { createScopedRateLimiter } from "../../common/middleware/rateLimiter.js"
 import { validate } from "../../common/middleware/validate.js";
 import type { CacheService } from "../../common/services/cache.service.js";
 import { asyncHandler } from "../../common/utils/asyncHandler.js";
-import { env } from "../../config/env.js";
 import { getAvailability } from "./partner.availability.controller.js";
 import {
   cancelBooking,
@@ -40,33 +39,33 @@ import {
 } from "./partnerAuth.js";
 import { idempotent } from "./partnerIdempotency.js";
 
-/** Kill switch: unset means on everywhere except production, which must opt in. */
-export const partnerContractEnabled = (): boolean =>
-  env.PARTNER_CONTRACT_ENABLED
-    ? env.PARTNER_CONTRACT_ENABLED === "true"
-    : env.NODE_ENV !== "production";
-
 const PRE_AUTH_PER_MINUTE = 3000;
 const PER_SERVICE_PER_MINUTE = 600;
 
 /**
- * Guard chain for one partner route, built per route because the prefix is shared with the staff
- * assistant. The global per-IP limiter exempts these paths (Alfred is one IP). A loose per-IP limit
- * runs first so bad tokens cannot flood the key fetch; the real limit is per service, after auth.
+ * Loose per-IP limit for EVERY request on a partner path, matched route or not, run before any token
+ * check so bad tokens and unknown paths cannot flood the key fetch. The global per-IP limiter
+ * skips these paths (Alfred is one IP).
  */
-export const partnerGuards = (cache: CacheService) => {
-  const perIp = createScopedRateLimiter(cache, {
+export const partnerIpLimiter = (cache: CacheService) =>
+  createScopedRateLimiter(cache, {
     prefix: "rl:alfred-ip:",
     windowSeconds: 60,
     max: PRE_AUTH_PER_MINUTE,
   });
+
+/**
+ * Guard chain for one partner route, built per route because the prefix is shared with the staff
+ * assistant. The real limit is per service, after auth.
+ */
+export const partnerGuards = (cache: CacheService) => {
   const perService = createScopedRateLimiter(cache, {
     prefix: "rl:alfred-svc:",
     windowSeconds: 60,
     max: PER_SERVICE_PER_MINUTE,
     keyFn: (req) => req.partner?.svc ?? "unknown",
   });
-  const org = [perIp, alfredServiceAuth, requireContractVersion, perService] as const;
+  const org = [alfredServiceAuth, requireContractVersion, perService] as const;
   return { org, member: [...org, requireMemberAct, resolveActingMember] as const };
 };
 

@@ -1,17 +1,17 @@
 import { logger } from "../../../common/utils/logger.js";
-import { env } from "../../../config/env.js";
 import { Service } from "../../service/service.model.js";
 import { loadCatalogContext, toCatalogItem } from "../catalogItem.js";
+import { partnerOutboxEnabled } from "../partner.config.js";
 import { enqueue } from "./partnerOutbox.service.js";
 
 /**
  * Tell Alfred a service changed (`catalog.upserted`) or went away (`catalog.removed`). The pull is
  * the safety net, so this is best effort and never throws: the edit it follows has already committed.
- * Only once Alfred's address is configured: before that nobody is listening. The Alfred-owned bundle
+ * Only while the outbox is on: before that nobody is listening and rows would pile up. The Alfred-owned bundle
  * has no listing and is never announced.
  */
 export async function publishCatalogChange(organizationId: string, serviceIds: unknown[]) {
-  if (!env.ALFRED_API_URL || serviceIds.length === 0) return;
+  if (!partnerOutboxEnabled() || serviceIds.length === 0) return;
   try {
     const [services, ctx] = await Promise.all([
       Service.find({

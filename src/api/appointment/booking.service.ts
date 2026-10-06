@@ -22,7 +22,13 @@ import { STANDARD_DELIVERY } from "../entitlement/entitlement.types.js";
 import { appointmentChanged } from "../notification/producers.js";
 import { Service } from "../service/service.model.js";
 import { Appointment, type AppointmentDocument, LIVE_STATUSES } from "./appointment.model.js";
-import { eligibleProviders, slotCapacity, slotContext } from "./availability.service.js";
+import {
+  bookableLocation,
+  bookableService,
+  eligibleProviders,
+  slotCapacity,
+  slotContext,
+} from "./availability.service.js";
 import {
   ensureLocks,
   environmentLock,
@@ -318,23 +324,34 @@ export async function rescheduleAppointment(req: Request) {
         "INVALID_STATUS_TRANSITION"
       );
     const staffId = String(actor(req)._id);
-    // Released first so the re-quote sees this booking's own unit as available.
-    await ledger.settle({ appointmentId: row._id }, "released", staffId, "rescheduled", session);
+    // A booking Alfred priced and charged keeps Alfred's payment record: no re-quote, no allowance,
+    // no ledger. Only the slot is re-validated.
+    const external = Boolean(row.externalPayment);
+    if (!external)
+      // Released first so the re-quote sees this booking's own unit as available.
+      await ledger.settle({ appointmentId: row._id }, "released", staffId, "rescheduled", session);
     const input = {
       memberId: String(row.memberId),
       serviceId: String(row.serviceId),
       locationId: String(row.locationId),
       startAt: body.startAt,
-      deliveryMethod: body.deliveryMethod ?? row.deliveryMethod ?? STANDARD_DELIVERY,
+      deliveryMethod: external
+        ? (row.deliveryMethod ?? STANDARD_DELIVERY)
+        : (body.deliveryMethod ?? row.deliveryMethod ?? STANDARD_DELIVERY),
       episodeId: row.episodeId ? String(row.episodeId) : null,
       excludeAppointmentId: row._id,
     };
-    const quoted = await buildQuote(row.organizationId, input, session);
-    assertBookable(quoted.quote);
-    assertEpisodeComponent(quoted.quote, input.episodeId);
-    assertExpected(quoted.quote, body.expectedQuote);
+    const quoted = external ? undefined : await buildQuote(row.organizationId, input, session);
+    if (quoted) {
+      assertBookable(quoted.quote);
+      assertEpisodeComponent(quoted.quote, input.episodeId);
+      assertExpected(quoted.quote, body.expectedQuote);
+    }
     const endAt = await assertSlot(
-      quoted,
+      quoted ?? {
+        service: await bookableService(row.organizationId, input.serviceId),
+        location: await bookableLocation(row.organizationId, input.locationId),
+      },
       { ...input, organizationId: row.organizationId, providerId, excludeId: row._id },
       session
     );
@@ -344,12 +361,16 @@ export async function rescheduleAppointment(req: Request) {
       endAt,
       providerId,
       deliveryMethod: input.deliveryMethod,
-      marketId: quoted.marketId,
-      price: priceOf(quoted.quote),
-      ...paymentFields(quoted.quote.finalCents),
+      ...(quoted
+        ? {
+            marketId: quoted.marketId,
+            price: priceOf(quoted.quote),
+            ...paymentFields(quoted.quote.finalCents),
+          }
+        : {}),
     });
     await row.save({ session });
-    await reserveIfAllowance(req, quoted.quote, row, session);
+    if (quoted) await reserveIfAllowance(req, quoted.quote, row, session);
     await enqueueForMember(
       row.memberId,
       (account) => bookingRescheduled(account, row, previousStartAt),

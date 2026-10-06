@@ -205,11 +205,11 @@ export async function createAlfredBooking(req: Request, body: BookingBody, idemp
       session
     );
   try {
-    const row = await lockedTransaction(
+    const result = await lockedTransaction(
       [memberLock(member._id), providerLock(slot.providerId), ...(await roomLocks(service._id))],
       async (session) => {
         const prior = await existing(session);
-        if (prior) return prior;
+        if (prior) return { row: prior, replayed: true };
         const endAt = await assertSlot(
           { service, location },
           {
@@ -284,11 +284,11 @@ export async function createAlfredBooking(req: Request, body: BookingBody, idemp
           String(member._id),
           session
         );
-        return created;
+        return { row: created, replayed: false };
       }
     );
-    await appointmentChanged("appointment_booked", row, PARTNER_ACTOR);
-    return row;
+    if (!result.replayed) await appointmentChanged("appointment_booked", result.row, PARTNER_ACTOR);
+    return result.row;
   } catch (error) {
     // A concurrent copy of this request committed first: answer with what it made.
     const again = isDuplicate(error) ? await existing() : null;

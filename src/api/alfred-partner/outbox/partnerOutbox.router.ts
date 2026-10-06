@@ -56,6 +56,16 @@ secured(
       { new: true }
     );
     if (!row) throw new NotFoundError("No failed or dead event with that id");
+    // Events queued behind it were parked at its old retry time; wake them so they follow at once.
+    await PartnerOutbox.updateMany(
+      {
+        organizationId: staff.organizationId,
+        "resource.ref": row.resource?.ref,
+        status: { $in: ["pending", "failed"] },
+        nextAttemptAt: { $gt: new Date() },
+      },
+      { $set: { nextAttemptAt: new Date() } }
+    );
     await audit(req, "retried", "PartnerOutbox", String(row._id));
     return { id: String(row._id), status: row.status };
   }

@@ -107,7 +107,7 @@ describe("partner idempotency store", () => {
     runs = 0;
     const first = await post("/ok", "k-dead");
     await PartnerIdempotencyKey.updateOne(
-      { key: "k-dead" },
+      { key: /k-dead$/ },
       { $set: { state: "pending", claimedAt: new Date(Date.now() - STALE_CLAIM_MS - 1000) } }
     );
     const again = await post("/ok", "k-dead");

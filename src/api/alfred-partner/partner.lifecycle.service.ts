@@ -29,8 +29,14 @@ type Policy = {
   amountCents?: number | null;
 };
 const windowHoursOf = (policy?: Policy | null) => policy?.windowHours ?? DEFAULT_WINDOW_HOURS;
+/**
+ * Alfred may only change what Alfred priced and charged. A staff-made booking can reach the member's
+ * app, but it holds a unit in Aerwell's own ledger until cutover, and the Alfred path never touches
+ * that ledger: cancelling or moving one is the clinic's job.
+ */
+const isAlfredPriced = (row: AppointmentDocument) => Boolean(row.externalPayment);
 const isCancellable = (row: AppointmentDocument, now: Date) =>
-  ["booked", "confirmed"].includes(row.status) && row.startAt > now;
+  isAlfredPriced(row) && ["booked", "confirmed"].includes(row.status) && row.startAt > now;
 
 /**
  * The cancellation rule. It is Aerwell's, not Alfred's (§5.7): the window is the service's
@@ -70,7 +76,9 @@ export async function cancellationQuote(row: AppointmentDocument, now = new Date
       refundCents: 0,
       currency: terms.currency,
       windowEndsAt: null,
-      policyText: "This booking can no longer be cancelled.",
+      policyText: isAlfredPriced(row)
+        ? "This booking can no longer be cancelled."
+        : "Please contact the clinic to change this booking.",
     };
   return {
     allowed: true,
@@ -222,7 +230,7 @@ export async function rescheduleAlfredBooking(
   if (sameSlot && ["booked", "confirmed"].includes(row.status)) return row;
   const hours = windowHoursOf(service.lateCancellationFee);
   if (
-    !["booked", "confirmed"].includes(row.status) ||
+    !(isAlfredPriced(row) && ["booked", "confirmed"].includes(row.status)) ||
     row.startAt.getTime() - Date.now() < hours * HOUR
   )
     throw contractConflict("OUTSIDE_RESCHEDULE_WINDOW", "This booking can no longer be moved");

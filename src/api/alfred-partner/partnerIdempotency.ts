@@ -72,7 +72,8 @@ export const idempotent = (): RequestHandler =>
     // The concrete path, not the route pattern: one key reused on two bookings' `/cancel` (empty bodies hash
     // the same) must be two requests, never a replay of the first booking's answer.
     const path = req.originalUrl.split("?")[0] ?? req.path;
-    const claim = { organizationId, path, key };
+    // The member is part of the key's scope: member B's call can never replay member A's stored answer.
+    const claim = { organizationId, path, key: `${req.partner?.accountId ?? "-"}:${key}` };
     const bodyHash = hashBody(req.body);
     try {
       await PartnerIdempotencyKey.create({ ...claim, method: req.method, bodyHash });

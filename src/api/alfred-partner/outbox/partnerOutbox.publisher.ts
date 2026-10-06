@@ -5,7 +5,7 @@ import {
 } from "../../../common/services/serviceTokenClient.js";
 import { logger } from "../../../common/utils/logger.js";
 import { env } from "../../../config/env.js";
-import { partnerContractEnabled } from "../partner.router.js";
+import { partnerOutboxEnabled } from "../partner.config.js";
 import { PartnerOutbox } from "./partnerOutbox.model.js";
 
 const CLAIM_MS = 2 * 60_000;
@@ -23,42 +23,58 @@ export interface DrainResult {
 }
 
 const OPEN = ["pending", "failed", "sending"];
-const MAX_SKIPS = 25;
+const MAX_ROUNDS = 50;
 
 /**
  * Atomically take the next due row. A `sending` row past its lease belonged to a dead process and is
- * taken again. A row waits while an EARLIER event about the same resource is still open, so Alfred
- * never sees a booking cancelled before it was created.
+ * taken again. A row waits while an EARLIER event about the same resource is still open (so Alfred
+ * never sees a booking cancelled before it was created); everything waiting on one blocker is moved
+ * to the time that blocker is next due, so a pile of waiting rows can never crowd the front of the
+ * due queue. A refused row (Alfred cannot take it now) does not hold up the events behind it.
  */
 async function claim(now: Date) {
   const organizationId = env.AERWELL_ORG_ID;
-  const skipped: unknown[] = [];
-  for (let i = 0; i < MAX_SKIPS; i += 1) {
+  for (let round = 0; round < MAX_ROUNDS; round += 1) {
     const next = await PartnerOutbox.findOne({
       organizationId,
       status: { $in: OPEN },
       nextAttemptAt: { $lte: now },
-      _id: { $nin: skipped },
     })
       .sort({ nextAttemptAt: 1, _id: 1 })
       .lean();
     if (!next) return null;
-    const blocked = await PartnerOutbox.exists({
+    const blocker = await PartnerOutbox.findOne({
       organizationId,
       "resource.ref": next.resource?.ref,
       status: { $in: OPEN },
+      lastError: { $ne: "refused" },
       occurredAt: { $lt: next.occurredAt },
       _id: { $ne: next._id },
-    });
-    const taken = blocked
-      ? null
-      : await PartnerOutbox.findOneAndUpdate(
-          { _id: next._id, status: next.status, nextAttemptAt: next.nextAttemptAt },
-          { $set: { status: "sending", nextAttemptAt: new Date(now.getTime() + CLAIM_MS) } },
-          { new: true }
-        );
+    })
+      .sort({ occurredAt: 1 })
+      .select("nextAttemptAt occurredAt")
+      .lean();
+    if (blocker) {
+      // 1 ms past `now` at least: a due blocker is picked on the next round, never this same row again.
+      const wakeAt = new Date(Math.max(blocker.nextAttemptAt.getTime(), now.getTime() + 1));
+      await PartnerOutbox.updateMany(
+        {
+          organizationId,
+          "resource.ref": next.resource?.ref,
+          status: { $in: OPEN },
+          occurredAt: { $gt: blocker.occurredAt },
+          nextAttemptAt: { $lte: now },
+        },
+        { $set: { nextAttemptAt: wakeAt } }
+      );
+      continue;
+    }
+    const taken = await PartnerOutbox.findOneAndUpdate(
+      { _id: next._id, status: next.status, nextAttemptAt: next.nextAttemptAt },
+      { $set: { status: "sending", nextAttemptAt: new Date(now.getTime() + CLAIM_MS) } },
+      { new: true }
+    );
     if (taken) return taken;
-    skipped.push(next._id);
   }
   return null;
 }
@@ -195,13 +211,6 @@ export async function drainOutbox(now = new Date()): Promise<DrainResult> {
   }
   return result;
 }
-
-/** On unless switched off; with no switch it follows the contract and needs Alfred's address and credentials. */
-export const partnerOutboxEnabled = (): boolean =>
-  env.PARTNER_OUTBOX_ENABLED
-    ? env.PARTNER_OUTBOX_ENABLED === "true"
-    : partnerContractEnabled() &&
-      Boolean(env.ALFRED_API_URL && env.ALFRED_AUTH_URL && env.ALFRED_AUTH_CLIENT_ID);
 
 /** In-process drain every few seconds, one at a time (the claim is atomic, so a second process is safe too). */
 export function startPartnerOutbox(): NodeJS.Timeout | undefined {

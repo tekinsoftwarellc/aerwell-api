@@ -7,11 +7,9 @@ import helmet from "helmet";
 import hpp from "hpp";
 import swaggerUi from "swagger-ui-express";
 import { partnerOutboxRouter } from "./api/alfred-partner/outbox/partnerOutbox.router.js";
+import { partnerContractEnabled } from "./api/alfred-partner/partner.config.js";
 import { PARTNER_PATH } from "./api/alfred-partner/partner.paths.js";
-import {
-  createPartnerRouter,
-  partnerContractEnabled,
-} from "./api/alfred-partner/partner.router.js";
+import { createPartnerRouter, partnerIpLimiter } from "./api/alfred-partner/partner.router.js";
 import { createAlfredRouter } from "./api/alfred/alfred.router.js";
 import { appointmentRouter } from "./api/appointment/appointment.router.js";
 import { createAuthRouter, meRouter } from "./api/auth/auth.router.js";
@@ -48,9 +46,11 @@ export const createServer = (cache: CacheService = createCacheService()): Expres
   app.use(cors({ origin: origins.includes("*") ? true : origins, credentials: true }));
   app.use(compression());
   // Alfred is one IP; partner routes carry their own limiters (partner.router.ts).
-  app.use(
-    createRateLimiter(cache, (req) => partnerContractEnabled() && PARTNER_PATH.test(req.path))
-  );
+  const onPartnerPath = (req: { path: string }) =>
+    partnerContractEnabled() && PARTNER_PATH.test(req.path);
+  app.use(createRateLimiter(cache, onPartnerPath));
+  const perIp = partnerIpLimiter(cache);
+  app.use((req, res, next) => (onPartnerPath(req) ? perIp(req, res, next) : next()));
   app.use(requestLogger);
   // Raw body for signature verification: must precede the JSON parser.
   app.use("/api/v1", webhookRouter);

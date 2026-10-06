@@ -22,6 +22,8 @@ export function installAlfredKeys() {
   });
 }
 export const removeAlfredKeys = () => setAlfredKeyProvider(null);
+/** Install any provider (for example the real JWKS fetcher over a stubbed fetch). */
+export const setKeyProviderForTest = setAlfredKeyProvider;
 
 interface TokenOptions {
   accountId?: string | null;

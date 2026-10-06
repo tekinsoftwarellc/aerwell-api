@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearServiceTokenCache } from "../../../common/services/serviceTokenClient.js";
 import { env } from "../../../config/env.js";
+import { partnerOutboxEnabled } from "../partner.config.js";
 import { PartnerOutbox } from "./partnerOutbox.model.js";
-import { drainOutbox, partnerOutboxEnabled } from "./partnerOutbox.publisher.js";
+import { drainOutbox } from "./partnerOutbox.publisher.js";
 
 const NOW = new Date("2027-03-01T20:00:00.000Z");
 beforeEach(() => clearServiceTokenCache());

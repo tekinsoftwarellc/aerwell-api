@@ -6,7 +6,7 @@ import { staffWith } from "../../../test/memberFixture.js";
 import { installAlfredKeys, removeAlfredKeys } from "../../../test/partnerFixture.js";
 import { PAID, partnerWorld } from "../../../test/partnerWorld.js";
 import { as } from "../../../test/scheduleFixture.js";
-import { Appointment } from "../../appointment/appointment.model.js";
+import { AllowanceLedgerEntry, Appointment } from "../../appointment/appointment.model.js";
 import { Location } from "../../location/location.model.js";
 import { Member } from "../../member/member.model.js";
 import { Service } from "../../service/service.model.js";
@@ -270,6 +270,65 @@ describe("events the outbox writes for staff changes", () => {
     const long = { ...event, resource: { kind: "booking", ref: "x".repeat(200) } };
     expect(eventKey(long)).toMatch(/^booking\.created:h:[a-f0-9]{32}$/);
     expect(eventKey(long)).toBe(eventKey(long));
+  });
+});
+
+describe("staff changes to a booking Alfred priced and charged", () => {
+  it("a staff reschedule keeps Alfred's payment record and touches no allowance or ledger", async () => {
+    const w = await partnerWorld();
+    const made = await w.book("dexa-scan", "09:00", { payment: PAID });
+    const ref = made.body.data.bookingRef as string;
+    const moved = await w.api.post(`/api/v1/appointments/${ref}/reschedule`, {
+      startAt: at(DAY, "13:00").toISOString(),
+    });
+    // The member holds no plan: Aerwell's own pricing would refuse. Alfred's booking is not re-priced.
+    expect(moved.status, JSON.stringify(moved.body)).toBe(200);
+    const row = await Appointment.findById(ref).lean();
+    expect(row).toMatchObject({
+      paymentStatus: "paid_external",
+      amountDueCents: 17500,
+      startAt: at(DAY, "13:00"),
+    });
+    expect(row?.price).toMatchObject({
+      source: "alfred",
+      amountCents: 17500,
+      paymentIntentId: "pi_test_123",
+    });
+    expect(await AllowanceLedgerEntry.countDocuments()).toBe(0);
+    expect((await rows("booking.rescheduled"))[0]?.payload).toMatchObject({ bookingRef: ref });
+  });
+
+  it("a staff cancel leaves the payment as Alfred recorded it, and is late by the window whatever the fee", async () => {
+    const w = await partnerWorld();
+    const made = await w.book("dexa-scan", "09:00", { payment: PAID });
+    const ref = made.body.data.bookingRef as string;
+    const soon = new Date(Date.now() + 10 * 3_600_000);
+    await Appointment.updateOne(
+      { _id: ref },
+      { startAt: soon, endAt: new Date(soon.getTime() + 3_600_000) }
+    );
+    expect(
+      (await w.api.post(`/api/v1/appointments/${ref}/cancel`, { reason: "Clinic closed" })).status
+    ).toBe(200);
+    const row = await Appointment.findById(ref).lean();
+    expect(row).toMatchObject({
+      status: "cancelled",
+      paymentStatus: "paid_external",
+      amountDueCents: 17500,
+      cancellation: { by: "staff", late: true, feeCents: 0 },
+    });
+    expect((await rows("booking.cancelled"))[0]?.payload).toMatchObject({
+      cancelledBy: "staff",
+      feeCents: 0,
+      refundCents: 17500,
+      late: true,
+    });
+    expect(await AllowanceLedgerEntry.countDocuments()).toBe(0);
+    expect((await w.alfred.get(`/bookings/${ref}`)).body.data.payment).toEqual({
+      status: "paid",
+      amountCents: 17500,
+      currency: "usd",
+    });
   });
 });
 

@@ -7,6 +7,7 @@ import { env } from "../../config/env.js";
 import { Appointment } from "../appointment/appointment.model.js";
 import { Member } from "../member/member.model.js";
 import type { eventBody } from "./partner.schema.js";
+import { STALE_CLAIM_MS } from "./partnerIdempotency.js";
 import { PartnerIdempotencyKey } from "./partnerIdempotency.model.js";
 
 type Event = z.output<typeof eventBody>;
@@ -85,24 +86,33 @@ export async function receiveEvent(req: Request, res: Response): Promise<void> {
   const organizationId = env.AERWELL_ORG_ID;
   if (!organizationId) throw new AppError("Partner organization is not configured", 503);
   const claim = { organizationId, path: "/events:inbound", key: event.idempotencyKey };
+  const reply = (status: "received" | "duplicate") =>
+    res.status(202).json(ServiceResponse.success("Event received", { status }, 202));
   try {
-    await PartnerIdempotencyKey.create({
-      ...claim,
-      method: "POST",
-      bodyHash: event.type,
-      state: "done",
-      statusCode: 202,
-    });
+    await PartnerIdempotencyKey.create({ ...claim, method: "POST", bodyHash: event.type });
   } catch (error) {
     if (!isDuplicate(error)) throw error;
-    res.status(202).json(ServiceResponse.success("Event received", { status: "duplicate" }, 202));
-    return;
+    const seen = await PartnerIdempotencyKey.findOne(claim).lean();
+    if (seen?.state === "done") {
+      reply("duplicate");
+      return;
+    }
+    // Still `pending`: a process died mid-handler (handlers are idempotent sets), or one is running now.
+    const takeover = await PartnerIdempotencyKey.findOneAndUpdate(
+      { ...claim, state: "pending", claimedAt: { $lt: new Date(Date.now() - STALE_CLAIM_MS) } },
+      { $set: { claimedAt: new Date() } }
+    );
+    if (!takeover) {
+      res.setHeader("Retry-After", "1");
+      throw new AppError("This event is already being processed", 503);
+    }
   }
   try {
     await HANDLERS[event.type]?.(organizationId, event);
+    await PartnerIdempotencyKey.updateOne(claim, { $set: { state: "done", statusCode: 202 } });
   } catch (error) {
     await PartnerIdempotencyKey.deleteOne(claim);
     throw error;
   }
-  res.status(202).json(ServiceResponse.success("Event received", { status: "received" }, 202));
+  reply("received");
 }
