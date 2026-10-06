@@ -22,6 +22,7 @@
     "smoke": "node scripts/smoke.mjs",
     "seed:dev": "tsx src/scripts/seed.ts",
     "migrate:catalog": "tsx src/scripts/migrate-catalog.ts",
+    "partner:manifest": "tsx src/scripts/print-partner-manifest.ts",
     "db:sync-indexes": "node dist/scripts/sync-indexes.js",
     "seed:dist": "node dist/scripts/seed.js",
     "cleanup:everhaus": "node dist/scripts/cleanup-everhaus.js"
@@ -64,6 +65,8 @@
     "@types/swagger-ui-express": "4.1.8",
     "@types/ws": "8.18.1",
     "@vitest/coverage-v8": "4.1.11",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
     "mongodb-memory-server": "11.0.1",
     "pino-pretty": "11.3.0",
     "supertest": "7.2.2",

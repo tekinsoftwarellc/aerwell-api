@@ -7,6 +7,23 @@ export interface IndexSyncResult {
 }
 
 /**
+ * Indexes replaced by a differently-named one. Mongo refuses to create an index whose name exists
+ * with other options, and a stale full unique index would keep rejecting members that have no email.
+ */
+const RETIRED_INDEXES = [{ model: "Member", index: "organizationId_1_email_1" }];
+
+export async function dropRetiredIndexes(): Promise<void> {
+  for (const { model, index } of RETIRED_INDEXES) {
+    const target = mongoose.models[model];
+    if (!target) continue;
+    await target.collection.dropIndex(index).catch((error: { codeName?: string }) => {
+      // Not there (fresh database, or already dropped): nothing to do.
+      if (error.codeName !== "IndexNotFound" && error.codeName !== "NamespaceNotFound") throw error;
+    });
+  }
+}
+
+/**
  * Builds every index the schemas declare (createIndexes: idempotent, never
  * drops). Run BEFORE traffic: webhook dedupe and booking idempotency depend on
  * unique indexes that autoIndex would otherwise build in the background.
@@ -16,6 +33,7 @@ export async function syncAllIndexes(options: { dropStale?: boolean } = {}) {
   // Importing the app registers every model with mongoose.
   await import("../server.js");
   const result: IndexSyncResult = { models: 0, stale: [] };
+  await dropRetiredIndexes();
   for (const model of Object.values(mongoose.models)) {
     await model.createCollection().catch(() => undefined); // already exists
     if (options.dropStale) await model.syncIndexes();

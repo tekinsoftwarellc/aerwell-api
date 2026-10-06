@@ -1,13 +1,25 @@
 import { Router } from "express";
+import { empty } from "../../common/http.js";
 import { createScopedRateLimiter } from "../../common/middleware/rateLimiter.js";
+import { validate } from "../../common/middleware/validate.js";
 import type { CacheService } from "../../common/services/cache.service.js";
+import { asyncHandler } from "../../common/utils/asyncHandler.js";
 import { env } from "../../config/env.js";
+import { getCatalogItem, listCatalog } from "./partner.catalog.controller.js";
+import { provisionMember } from "./partner.members.controller.js";
+import {
+  catalogItemParams,
+  catalogItemQuery,
+  catalogQuery,
+  provisionBody,
+} from "./partner.schema.js";
 import {
   alfredServiceAuth,
   requireContractVersion,
   requireMemberAct,
   resolveActingMember,
 } from "./partnerAuth.js";
+import { idempotent } from "./partnerIdempotency.js";
 
 /** Kill switch: unset means on everywhere except production, which must opt in. */
 export const partnerContractEnabled = (): boolean =>
@@ -42,6 +54,30 @@ export const partnerGuards = (cache: CacheService) => {
 /** Partner Contract v1, served at `/api/v1/alfred/*` (its own document, not in swagger). */
 export const createPartnerRouter = (cache: CacheService): Router => {
   const router = Router();
-  partnerGuards(cache);
+  const guard = partnerGuards(cache);
+  const nothing = { body: empty, query: empty, params: empty };
+
+  // §5.1. The member does not exist yet, so only the delegation claim is required, not the member.
+  router.post(
+    "/members",
+    ...guard.org,
+    requireMemberAct,
+    validate({ ...nothing, body: provisionBody }),
+    idempotent(),
+    asyncHandler(provisionMember)
+  );
+  // §5.3, §5.4: org-level pulls. `act` is ignored unless `accountId` is asked for.
+  router.get(
+    "/catalog",
+    ...guard.org,
+    validate({ ...nothing, query: catalogQuery }),
+    asyncHandler(listCatalog)
+  );
+  router.get(
+    "/catalog/:partnerRef",
+    ...guard.org,
+    validate({ ...nothing, params: catalogItemParams, query: catalogItemQuery }),
+    asyncHandler(getCatalogItem)
+  );
   return router;
 };

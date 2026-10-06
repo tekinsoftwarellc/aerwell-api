@@ -1,5 +1,6 @@
 import type { Request } from "express";
 import { BadRequestError, ConflictError, NotFoundError } from "../../common/errors/AppError.js";
+import { touchServicesOfMarket } from "../alfred-partner/catalogTouch.js";
 import { evaluateEntitlement } from "../entitlement/evaluate.js";
 import { loadCatalogSnapshot } from "../entitlement/snapshot.js";
 import { Location } from "../location/location.model.js";
@@ -88,6 +89,8 @@ export async function patchMarket(req: Request) {
   await validateLocations(req, patch.locationIds);
   doc.set(patch);
   await saveVersioned(req, "market", doc, "updated");
+  // Where services are offered just changed: bump them so Alfred's incremental pull sees it.
+  await touchServicesOfMarket(orgOf(req), doc._id);
   return serialize(doc);
 }
 

@@ -4,6 +4,17 @@ const schema = new Schema(
     organizationId: { type: String, required: true, index: true },
     name: { type: String, required: true },
     address: String,
+    // GeoJSON Point [lng, lat]. Alfred places the location from it, so the manifest needs it.
+    geo: {
+      type: new Schema(
+        {
+          type: { type: String, enum: ["Point"], default: "Point" },
+          coordinates: { type: [Number], required: true },
+        },
+        { _id: false }
+      ),
+      default: undefined,
+    },
     timeZone: { type: String, default: "America/Los_Angeles" },
     businessHours: {
       type: [

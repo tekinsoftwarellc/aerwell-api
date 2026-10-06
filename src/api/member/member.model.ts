@@ -42,8 +42,9 @@ const memberSchema = new Schema(
     // Set when Alfred reports `member.deleted`. The clinical record is never deleted.
     alfredUnlinkedAt: { type: Date, default: null },
     firstName: { type: String, required: true, trim: true },
-    lastName: { type: String, required: true, trim: true },
-    email: { type: String, required: true, trim: true, lowercase: true },
+    // Optional: Alfred sends one name at most and never an email (contract §5.1).
+    lastName: { type: String, trim: true, default: "" },
+    email: { type: String, trim: true, lowercase: true },
     phone: String,
     dateOfBirth: String,
     sex: { type: String, enum: ["male", "female"] },
@@ -68,7 +69,16 @@ const memberSchema = new Schema(
   },
   { timestamps: true }
 );
-memberSchema.index({ organizationId: 1, email: 1 }, { unique: true });
+// Partial: a member provisioned by Alfred has no email, and absent emails must not collide.
+memberSchema.index(
+  { organizationId: 1, email: 1 },
+  {
+    // New name: the old full unique index (`organizationId_1_email_1`) is retired in config/indexes.ts.
+    name: "organizationId_1_email_1_partial",
+    unique: true,
+    partialFilterExpression: { email: { $type: "string" } },
+  }
+);
 memberSchema.index(
   { organizationId: 1, alfredAccountId: 1 },
   { unique: true, partialFilterExpression: { alfredAccountId: { $type: "string" } } }
