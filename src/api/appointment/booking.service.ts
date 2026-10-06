@@ -15,9 +15,17 @@ import { audit } from "../audit/audit.js";
 import type { EntitlementQuote } from "../entitlement/entitlement.types.js";
 import { STANDARD_DELIVERY } from "../entitlement/entitlement.types.js";
 import { appointmentChanged } from "../notification/producers.js";
+import { Service } from "../service/service.model.js";
 import { Appointment, type AppointmentDocument, LIVE_STATUSES } from "./appointment.model.js";
 import { eligibleProviders, slotCapacity, slotContext } from "./availability.service.js";
-import { ensureLocks, ledger, memberLock, providerLock, takeLocks } from "./ledger.service.js";
+import {
+  ensureLocks,
+  environmentLock,
+  ledger,
+  memberLock,
+  providerLock,
+  takeLocks,
+} from "./ledger.service.js";
 import {
   type ExpectedQuote,
   assertBookable,
@@ -44,17 +52,25 @@ export async function lockedTransaction<T>(
   });
 }
 
-interface SlotRequest {
+export interface SlotRequest {
   organizationId: string;
   memberId: Types.ObjectId | string;
   providerId: string;
   startAt: Date;
   excludeId?: unknown;
+  /** Anything but the standard delivery (mobile phlebotomy) needs no room or machine. */
+  deliveryMethod?: string;
 }
-type Quoted = Awaited<ReturnType<typeof buildQuote>>;
+type Quoted = Pick<Awaited<ReturnType<typeof buildQuote>>, "service" | "location">;
 
-/** Provider eligibility, grid alignment, shift/PTO/hours/capacity and member overlap. */
-async function assertSlot(quoted: Quoted, slot: SlotRequest, session: ClientSession) {
+/** The lock a room or machine needs so two members with two providers cannot both take it. */
+export async function roomLocks(serviceId: Types.ObjectId | string): Promise<string[]> {
+  const service = await Service.findOne({ _id: serviceId }).select("environmentId").lean();
+  return service?.environmentId ? [environmentLock(service.environmentId)] : [];
+}
+
+/** Provider eligibility, grid alignment, shift/PTO/hours/room/capacity and member overlap. */
+export async function assertSlot(quoted: Quoted, slot: SlotRequest, session: ClientSession) {
   const { service, location } = quoted;
   if (!(await eligibleProviders(service, slot.providerId, session)).length)
     throw new ValidationError(
@@ -72,7 +88,11 @@ async function assertSlot(quoted: Quoted, slot: SlotRequest, session: ClientSess
       start: slot.startAt,
       end: endAt,
     },
-    { session, excludeAppointmentId: slot.excludeId }
+    {
+      session,
+      excludeAppointmentId: slot.excludeId,
+      ...(slot.deliveryMethod ? { deliveryMethod: slot.deliveryMethod } : {}),
+    }
   );
   if (slotCapacity(ctx, slot.startAt) === 0)
     throw new ConflictError("That time is no longer available", undefined, "SLOT_UNAVAILABLE");
@@ -235,7 +255,11 @@ export async function bookAppointment(req: Request) {
   if (existing) return { appointment: existing, replayed: true };
   try {
     const result = await lockedTransaction(
-      [memberLock(body.memberId), providerLock(body.providerId)],
+      [
+        memberLock(body.memberId),
+        providerLock(body.providerId),
+        ...(await roomLocks(body.serviceId)),
+      ],
       (session) => createBooking(req, body, session)
     );
     if (!result.replayed)
@@ -278,6 +302,7 @@ export async function rescheduleAppointment(req: Request) {
     memberLock(initial.memberId),
     providerLock(initial.providerId),
     providerLock(providerId),
+    ...(await roomLocks(initial.serviceId)),
   ];
   const moved = await lockedTransaction([...new Set(keys)], async (session) => {
     const row = await Appointment.findById(initial._id).session(session);

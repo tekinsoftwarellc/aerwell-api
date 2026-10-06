@@ -25,6 +25,8 @@ export async function takeLocks(keys: string[], session: ClientSession) {
 }
 export const memberLock = (memberId: Id) => `member:${String(memberId)}`;
 export const providerLock = (providerId: Id) => `provider:${String(providerId)}`;
+/** One machine or room: two members with two providers must still queue for it. */
+export const environmentLock = (environmentId: Id) => `environment:${String(environmentId)}`;
 
 // Exported as an object so the race tests can spy on what each writer attempted.
 export const ledger = {

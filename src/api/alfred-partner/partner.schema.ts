@@ -41,3 +41,14 @@ export const catalogQuery = z
   .strict();
 export const catalogItemParams = z.object({ partnerRef: ref }).strict();
 export const catalogItemQuery = z.object({ accountId: accountId.optional() }).strict();
+
+export const availabilityQuery = z
+  .object({
+    itemRef: ref,
+    from: instant,
+    to: instant,
+    accountId,
+    locationRef: ref.optional(),
+    staffRef: ref.optional(),
+  })
+  .strict();

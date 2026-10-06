@@ -5,9 +5,11 @@ import { validate } from "../../common/middleware/validate.js";
 import type { CacheService } from "../../common/services/cache.service.js";
 import { asyncHandler } from "../../common/utils/asyncHandler.js";
 import { env } from "../../config/env.js";
+import { getAvailability } from "./partner.availability.controller.js";
 import { getCatalogItem, listCatalog } from "./partner.catalog.controller.js";
 import { provisionMember } from "./partner.members.controller.js";
 import {
+  availabilityQuery,
   catalogItemParams,
   catalogItemQuery,
   catalogQuery,
@@ -62,8 +64,8 @@ export const createPartnerRouter = (cache: CacheService): Router => {
     "/members",
     ...guard.org,
     requireMemberAct,
-    validate({ ...nothing, body: provisionBody }),
     idempotent(),
+    validate({ ...nothing, body: provisionBody }),
     asyncHandler(provisionMember)
   );
   // §5.3, §5.4: org-level pulls. `act` is ignored unless `accountId` is asked for.
@@ -79,5 +81,15 @@ export const createPartnerRouter = (cache: CacheService): Router => {
     validate({ ...nothing, params: catalogItemParams, query: catalogItemQuery }),
     asyncHandler(getCatalogItem)
   );
+  // §5.5. The member may not exist yet (Alfred provisions at the first order), and Aerwell applies no
+  // member-specific rule to slots, so only the delegation claim is required.
+  router.get(
+    "/availability",
+    ...guard.org,
+    requireMemberAct,
+    validate({ ...nothing, query: availabilityQuery }),
+    asyncHandler(getAvailability)
+  );
+
   return router;
 };
