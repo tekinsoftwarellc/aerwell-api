@@ -58,10 +58,17 @@ export function alfredToken({
   return jwt.sign(payload, privateKey, options as jwt.SignOptions);
 }
 
-/** supertest against the real server, with the contract headers Alfred always sends. */
-export function alfredClient(app: ReturnType<typeof createServer>, token = alfredToken()) {
+/**
+ * supertest against the real server, with the contract headers Alfred always sends. A token given as a
+ * function is minted per request, like Alfred does (they live five minutes), so tests may move the clock.
+ */
+export function alfredClient(
+  app: ReturnType<typeof createServer>,
+  token: string | (() => string) = () => alfredToken()
+) {
+  const tokenFor = typeof token === "function" ? token : () => token;
   const base = (r: request.Test) =>
-    r.set("authorization", `Bearer ${token}`).set("x-contract-version", "1");
+    r.set("authorization", `Bearer ${tokenFor()}`).set("x-contract-version", "1");
   return {
     get: (path: string) => base(request(app).get(`/api/v1/alfred${path}`)),
     post: (path: string, body: unknown = {}, key: string = randomUUID()) =>

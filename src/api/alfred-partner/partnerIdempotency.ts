@@ -69,7 +69,9 @@ export const idempotent = (): RequestHandler =>
       throw new BadRequestError("Idempotency-Key header is required");
     const organizationId = env.AERWELL_ORG_ID;
     if (!organizationId) throw new AppError("Partner organization is not configured", 503);
-    const path = `${req.baseUrl}${req.route?.path ?? req.path}`;
+    // The concrete path, not the route pattern: one key reused on two bookings' `/cancel` (empty bodies hash
+    // the same) must be two requests, never a replay of the first booking's answer.
+    const path = req.originalUrl.split("?")[0] ?? req.path;
     const claim = { organizationId, path, key };
     const bodyHash = hashBody(req.body);
     try {

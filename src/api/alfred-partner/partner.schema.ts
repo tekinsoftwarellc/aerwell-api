@@ -52,3 +52,96 @@ export const availabilityQuery = z
     staffRef: ref.optional(),
   })
   .strict();
+
+const money = z.number().int().min(0).max(100_000_000);
+const deliveryMethod = z.string().regex(/^[a-z][a-z0-9_]{0,39}$/, "Invalid delivery method");
+const address = z
+  .object({
+    line1: z.string().trim().min(1).max(200),
+    line2: z.string().trim().max(200).optional(),
+    city: z.string().trim().min(1).max(120),
+    region: z.string().trim().min(1).max(120),
+    postalCode: z.string().trim().min(1).max(32),
+    country: z.string().trim().min(1).max(2),
+  })
+  .strict();
+/** Alfred's pricing outcome for a booking it priced itself (D1 addendum). Recorded, never recomputed. */
+const entitlement = z
+  .object({ decision: z.string().max(60), quoteRuleVersion: z.string().max(500) })
+  .optional();
+
+/**
+ * Unknown top-level keys are IGNORED, not rejected: Alfred may add optional fields inside v1
+ * (contract §0), and a strict body would turn that into a refused booking and a refund.
+ */
+export const bookingBody = z
+  .object({
+    accountId,
+    itemRef: ref,
+    slotRef: z.string().min(1).max(500),
+    locationRef: ref,
+    staffRef: ref.optional(),
+    payment: z
+      .object({
+        status: z.enum(["none", "paid"]),
+        paymentIntentId: z.string().min(1).max(200).optional(),
+        amountCents: money,
+        currency: z.string().regex(/^[a-z]{3}$/),
+      })
+      .superRefine((p, ctx) => {
+        if (p.status === "paid" && !p.paymentIntentId)
+          ctx.addIssue({
+            code: "custom",
+            path: ["paymentIntentId"],
+            message: "Required when paid",
+          });
+        if (p.status === "none" && p.paymentIntentId)
+          ctx.addIssue({
+            code: "custom",
+            path: ["paymentIntentId"],
+            message: "Absent unless paid",
+          });
+      }),
+    acceptedTermsVersion: z.string().min(1).max(64),
+    notes: z.string().trim().max(2000).optional(),
+    entitlement,
+    deliveryMethod: deliveryMethod.optional(),
+    serviceAddress: address.optional(),
+    episode: z
+      .object({ ref: z.string().min(1).max(100), bundleRef: z.string().min(1).max(200) })
+      .optional(),
+    alfredOrderRef: z.string().min(1).max(64).optional(),
+  })
+  .superRefine((b, ctx) => {
+    if (b.serviceAddress && (!b.deliveryMethod || b.deliveryMethod === "standard"))
+      ctx.addIssue({
+        code: "custom",
+        path: ["serviceAddress"],
+        message: "Only for a non-standard delivery method",
+      });
+  });
+export const bookingParams = z.object({ bookingRef: z.string().min(1).max(64) }).strict();
+export const rescheduleBody = z.object({ slotRef: z.string().min(1).max(500), entitlement });
+export const cancelBody = z.object({ reason: z.string().trim().max(500).optional() });
+export const anyBody = z.object({});
+
+export const ordersQuery = z
+  .object({
+    cursor: z.string().min(1).max(200).optional(),
+    limit: z.coerce.number().int().min(1).max(200).default(100),
+    updatedSince: instant.optional(),
+    accountId: accountId.optional(),
+    kind: z.enum(["booking", "enrollment", "training_session", "purchase", "clinical"]).optional(),
+  })
+  .strict();
+
+export const eventBody = z
+  .object({
+    idempotencyKey: z.string().min(1).max(128),
+    type: z.enum(["member.provisioned", "member.deleted", "order.paid", "order.refunded"]),
+    occurredAt: instant,
+    accountId: accountId.optional(),
+    resource: z.object({ kind: z.string().min(1).max(40), ref: z.string().min(1).max(200) }),
+    payload: z.record(z.unknown()),
+  })
+  .strict();

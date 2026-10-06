@@ -62,16 +62,41 @@ const appointmentSchema = new Schema(
     price: priceSnapshot,
     // Payments are unconfigured: an amount due is recorded, nothing is captured.
     amountDueCents: { type: Number, required: true, min: 0 },
+    // paid_external / pending_external: Alfred took (or will take) the payment; Aerwell only records it.
     paymentStatus: {
       type: String,
-      enum: ["not_required", "unconfigured"],
+      enum: ["not_required", "unconfigured", "paid_external", "pending_external"],
       required: true,
     },
+    // Alfred partner booking (contract v1). Set only on bookings that arrive through /api/v1/alfred.
+    alfredOrderRef: String,
+    acceptedTermsVersion: String,
+    // Where a clinician goes for a non-standard delivery. Staff reads only; never logged.
+    serviceAddress: {
+      type: new Schema(
+        {
+          line1: String,
+          line2: String,
+          city: String,
+          region: String,
+          postalCode: String,
+          country: String,
+        },
+        { _id: false }
+      ),
+      default: undefined,
+    },
+    // What Alfred charged: { status, amountCents, currency, paymentIntentId, paidAt, refundedCents, refundedAt }.
+    externalPayment: { type: Schema.Types.Mixed, default: undefined },
+    rescheduledAt: Date,
     cancellation: {
       type: new Schema(
         {
           at: Date,
           byId: Schema.Types.ObjectId,
+          // Who cancelled. Absent on rows written before the partner contract (they have `byId`).
+          by: { type: String, enum: ["member", "staff", "system"] },
+          refundCents: Number,
           reason: String,
           late: Boolean,
           feeCents: Number,
@@ -113,6 +138,8 @@ const appointmentSchema = new Schema(
 appointmentSchema.index({ organizationId: 1, startAt: 1 });
 appointmentSchema.index({ organizationId: 1, providerId: 1, startAt: 1, endAt: 1 });
 appointmentSchema.index({ organizationId: 1, memberId: 1, startAt: -1 });
+// The orders sync stream pages on (updatedAt, _id).
+appointmentSchema.index({ organizationId: 1, updatedAt: 1, _id: 1 });
 appointmentSchema.index({ organizationId: 1, serviceId: 1, status: 1, startAt: 1 });
 appointmentSchema.index(
   { organizationId: 1, idempotencyKey: 1 },

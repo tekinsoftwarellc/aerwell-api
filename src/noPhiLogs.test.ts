@@ -12,6 +12,14 @@ import {
 } from "./test/alfredFixture.js";
 import { pinClock } from "./test/appointmentFixture.js";
 import {
+  alfredClient,
+  alfredToken,
+  installAlfredKeys,
+  removeAlfredKeys,
+} from "./test/partnerFixture.js";
+import { partnerWorld } from "./test/partnerWorld.js";
+import { app } from "./test/scheduleFixture.js";
+import {
   FakeTranscriber,
   connect,
   final,
@@ -123,6 +131,82 @@ it("member, clinical, booking, Alfred and error flows log no PHI", async () => {
   expect(sink.lines.some((line) => line.includes("Request failed"))).toBe(true);
   expect(sink.lines.some((line) => line.includes('"statusCode":201'))).toBe(true);
   assertNoPhi(["Shannon", "Ashton"]);
+});
+
+it("Alfred partner flows (provision, book, move, cancel, events, refusals) log no PHI", async () => {
+  const account = "6710bb4e2f9c1a0031d5e7e1";
+  const address = "ADDRESS-SENTINEL-LINE";
+  const w = await partnerWorld();
+  installAlfredKeys();
+  try {
+    const alfred = alfredClient(app, () => alfredToken({ accountId: account }));
+    const org = alfredClient(app, () => alfredToken({ accountId: null }));
+    const profile = {
+      firstName: PHI.firstName,
+      lastName: PHI.lastName,
+      dateOfBirth: PHI.dateOfBirth,
+      gender: "female",
+    };
+    expect(
+      (await alfred.post("/members", { accountId: account, profile, membership: null })).status
+    ).toBe(201);
+    const blood = await w.slotAt("comprehensive-blood-panel", "09:00");
+    const made = await alfred.post("/bookings", {
+      ...w.bodyFor("comprehensive-blood-panel", blood, {
+        notes: PHI.note,
+        deliveryMethod: "mobile_phlebotomy",
+        serviceAddress: {
+          line1: address,
+          city: PHI.contact,
+          region: "NV",
+          postalCode: "89109",
+          country: "US",
+        },
+      }),
+      accountId: account,
+    });
+    expect(made.status, JSON.stringify(made.body)).toBe(201);
+    const ref = made.body.data.bookingRef as string;
+    const later = await w.slotAt("comprehensive-blood-panel", "13:00");
+    expect(
+      (await alfred.post(`/bookings/${ref}/reschedule`, { slotRef: later.slotRef })).status
+    ).toBe(200);
+    expect((await alfred.get(`/bookings/${ref}/cancellation-quote`)).status).toBe(200);
+    expect((await alfred.post(`/bookings/${ref}/cancel`, { reason: PHI.chat })).status).toBe(200);
+    // Refusals whose inputs carry PHI: a validation error, an unknown item, a bad slot and a bad event.
+    const bad = { ...w.bodyFor("comprehensive-blood-panel", blood), accountId: account };
+    expect((await alfred.post("/bookings", { ...bad, itemRef: PHI.lastName })).status).toBe(404);
+    expect((await alfred.post("/bookings", { ...bad, slotRef: PHI.email })).status).toBe(409);
+    expect(
+      (await alfred.post("/bookings", { ...bad, notes: 5, payment: PHI.firstName })).status
+    ).toBe(400);
+    expect((await alfred.post("/members", { accountId: PHI.email, profile })).status).toBe(400);
+    expect((await org.post("/events", { type: PHI.note })).status).toBe(400);
+    expect(
+      (
+        await org.post("/events", {
+          idempotencyKey: "phi-event-1",
+          type: "order.paid",
+          occurredAt: "2027-03-02T10:00:00.000Z",
+          accountId: account,
+          resource: { kind: "order", ref: ref },
+          payload: { name: PHI.firstName, email: PHI.email },
+        })
+      ).status
+    ).toBe(202);
+    // A 500 whose error message carries PHI.
+    vi.spyOn(Member, "findOne").mockImplementationOnce(() => {
+      throw new Error(`lookup failed for ${PHI.email} ${PHI.dateOfBirth}`);
+    });
+    expect((await alfred.get(`/bookings/${ref}`)).status).toBe(500);
+    // Token failures never echo the token.
+    const forged = await alfredClient(app, "not.a.token").get(`/bookings/${ref}`);
+    expect(forged.status).toBe(401);
+    expect(sink.lines.some((line) => line.includes("Request failed"))).toBe(true);
+    assertNoPhi([address, "Las Vegas", PHI.lastName.toLowerCase()]);
+  } finally {
+    removeAlfredKeys();
+  }
 });
 
 it("live visit transcription logs no transcript text or member details", async () => {
