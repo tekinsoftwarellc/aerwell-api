@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { PartnerOutbox } from "./api/alfred-partner/outbox/partnerOutbox.model.js";
+import { drainOutbox } from "./api/alfred-partner/outbox/partnerOutbox.publisher.js";
 import { Member } from "./api/member/member.model.js";
 import { setTranscriber } from "./api/visit/transcribe.adapter.js";
 import { emitVisitSignal } from "./api/visit/visit.events.js";
@@ -199,6 +201,25 @@ it("Alfred partner flows (provision, book, move, cancel, events, refusals) log n
       throw new Error(`lookup failed for ${PHI.email} ${PHI.dateOfBirth}`);
     });
     expect((await alfred.get(`/bookings/${ref}`)).status).toBe(500);
+    // The outbox: a staff cancel queues an event, and the publisher fails with an error that echoes PHI.
+    const second = await w.slotAt("vo2-max-test", "15:00");
+    const booked = await alfred.post("/bookings", {
+      ...w.bodyFor("vo2-max-test", second),
+      accountId: account,
+    });
+    expect(
+      (
+        await w.api.post(`/api/v1/appointments/${booked.body.data.bookingRef}/cancel`, {
+          reason: PHI.chat,
+        })
+      ).status
+    ).toBe(200);
+    expect(await PartnerOutbox.countDocuments({ type: "booking.cancelled" })).toBe(1);
+    vi.stubGlobal("fetch", async () => {
+      throw new Error(`connect failed for ${PHI.email} ${PHI.lastName}`);
+    });
+    expect((await drainOutbox()).retried).toBe(1);
+    vi.unstubAllGlobals();
     // Token failures never echo the token.
     const forged = await alfredClient(app, "not.a.token").get(`/bookings/${ref}`);
     expect(forged.status).toBe(401);

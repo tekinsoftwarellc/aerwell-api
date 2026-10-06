@@ -10,6 +10,11 @@ import {
   ValidationError,
 } from "../../common/errors/AppError.js";
 import { actor } from "../../common/http.js";
+import {
+  bookingCancelled,
+  bookingStatus,
+} from "../alfred-partner/outbox/partnerOutbox.payloads.js";
+import { enqueueForMember } from "../alfred-partner/outbox/partnerOutbox.service.js";
 import { audit } from "../audit/audit.js";
 import { Member, MemberFlag } from "../member/member.model.js";
 import { permissionsOf } from "../member/member.scope.js";
@@ -148,6 +153,12 @@ export async function changeStatus(req: Request) {
           );
         [noShowFlag] = await recordNoShow(row, session);
       }
+      if (to === "checked_in" || to === "completed" || to === "no_show")
+        await enqueueForMember(
+          row.memberId,
+          (account) => Promise.resolve(bookingStatus(account, updated, to)),
+          session
+        );
       await audit(
         req,
         `status_${to}`,
@@ -212,7 +223,7 @@ async function applyCancellation(
     session
   );
   const allowance = forfeit ? "forfeited" : "released";
-  return transition(req, row, "cancelled", session, {
+  const cancelled = await transition(req, row, "cancelled", session, {
     cancellation: {
       at: new Date(),
       byId: actor(req)._id,
@@ -225,6 +236,21 @@ async function applyCancellation(
     amountDueCents: feeCents,
     paymentStatus: feeCents > 0 ? "unconfigured" : "not_required",
   });
+  // A staff cancel reaches the member's phone through Alfred. A waived late fee is not a late cancel.
+  await enqueueForMember(
+    row.memberId,
+    (account) =>
+      Promise.resolve(
+        bookingCancelled(account, cancelled, {
+          by: "staff",
+          at: cancelled.cancellation?.at ?? new Date(),
+          feeCents,
+          late: terms.late && !input.waiveFee,
+        })
+      ),
+    session
+  );
+  return cancelled;
 }
 
 export async function cancelAppointment(req: Request) {

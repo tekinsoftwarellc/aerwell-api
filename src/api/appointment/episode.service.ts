@@ -10,6 +10,8 @@ import {
   ValidationError,
 } from "../../common/errors/AppError.js";
 import { actor } from "../../common/http.js";
+import { bookingCancelled } from "../alfred-partner/outbox/partnerOutbox.payloads.js";
+import { enqueueForMember } from "../alfred-partner/outbox/partnerOutbox.service.js";
 import { audit } from "../audit/audit.js";
 import { STANDARD_DELIVERY } from "../entitlement/entitlement.types.js";
 import { memberTarget } from "../member/member.scope.js";
@@ -227,6 +229,15 @@ export async function cancelEpisode(req: Request) {
       },
       { session }
     );
+    for (const row of dropped)
+      await enqueueForMember(
+        row.memberId,
+        (account) =>
+          Promise.resolve(
+            bookingCancelled(account, row, { by: "staff", at: now, feeCents: 0, late: false })
+          ),
+        session
+      );
     await ledger.settle({ episodeId: episode._id }, "released", String(staff._id), reason, session);
     episode.set({
       status: "cancelled",

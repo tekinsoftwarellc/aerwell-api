@@ -1,5 +1,6 @@
 import { logger } from "../../common/utils/logger.js";
 import { Service } from "../service/service.model.js";
+import { publishCatalogChange } from "./outbox/catalogEvents.js";
 
 /**
  * A catalog item's `version` is `Service.updatedAt` and nothing else: the pull sorts and
@@ -9,11 +10,9 @@ import { Service } from "../service/service.model.js";
  */
 export async function touchServicesOfMarket(organizationId: string, marketId: unknown) {
   try {
-    await Service.updateMany(
-      { organizationId, $or: [{ marketScope: "all" }, { marketIds: marketId }] },
-      { $set: { updatedAt: new Date() } },
-      { timestamps: false }
-    );
+    const affected = { organizationId, $or: [{ marketScope: "all" }, { marketIds: marketId }] };
+    await Service.updateMany(affected, { $set: { updatedAt: new Date() } }, { timestamps: false });
+    await publishCatalogChange(organizationId, await Service.find(affected).distinct("_id"));
   } catch (error) {
     logger.error({ errorType: (error as Error).name }, "catalog version touch failed");
   }

@@ -1,3 +1,4 @@
+import { partnerOutboxPaths } from "../api/alfred-partner/outbox/partnerOutbox.openapi.js";
 import { alfredPaths } from "../api/alfred/alfred.openapi.js";
 import { appointmentPaths } from "../api/appointment/appointment.openapi.js";
 import { authPaths } from "../api/auth/auth.openapi.js";
@@ -42,6 +43,7 @@ export const swaggerSpec = {
     ...visitPaths,
     ...supplementPaths,
     ...alfredPaths,
+    ...partnerOutboxPaths,
     "/api/v1/health": {
       get: {
         summary: "Process and Mongo health",

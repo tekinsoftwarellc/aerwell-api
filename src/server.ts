@@ -6,6 +6,7 @@ import mongoSanitize from "express-mongo-sanitize";
 import helmet from "helmet";
 import hpp from "hpp";
 import swaggerUi from "swagger-ui-express";
+import { partnerOutboxRouter } from "./api/alfred-partner/outbox/partnerOutbox.router.js";
 import { PARTNER_PATH } from "./api/alfred-partner/partner.paths.js";
 import {
   createPartnerRouter,
@@ -83,6 +84,7 @@ export const createServer = (cache: CacheService = createCacheService()): Expres
   app.use("/api/v1", supplementRouter);
   // D1 partner contract: guarded per route, so the staff assistant router below is untouched.
   if (partnerContractEnabled()) app.use("/api/v1/alfred", createPartnerRouter(cache));
+  app.use("/api/v1", partnerOutboxRouter);
   app.use("/api/v1", createAlfredRouter(cache));
   app.use((_req, _res, next) => next(new NotFoundError("Route not found")));
   app.use(errorHandler);

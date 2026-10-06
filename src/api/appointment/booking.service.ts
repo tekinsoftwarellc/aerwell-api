@@ -11,6 +11,11 @@ import {
   ValidationError,
 } from "../../common/errors/AppError.js";
 import { actor } from "../../common/http.js";
+import {
+  bookingCreated,
+  bookingRescheduled,
+} from "../alfred-partner/outbox/partnerOutbox.payloads.js";
+import { enqueueForMember } from "../alfred-partner/outbox/partnerOutbox.service.js";
 import { audit } from "../audit/audit.js";
 import type { EntitlementQuote } from "../entitlement/entitlement.types.js";
 import { STANDARD_DELIVERY } from "../entitlement/entitlement.types.js";
@@ -243,6 +248,7 @@ async function createBooking(req: Request, body: BookBody, session: ClientSessio
   );
   if (!appointment) throw new AppError("Appointment was not created");
   await reserveIfAllowance(req, quote, appointment, session);
+  await enqueueForMember(body.memberId, (account) => bookingCreated(account, appointment), session);
   await audit(req, "created", "Appointment", String(appointment._id), body.memberId, session);
   return { appointment, replayed: false };
 }
@@ -332,6 +338,7 @@ export async function rescheduleAppointment(req: Request) {
       { ...input, organizationId: row.organizationId, providerId, excludeId: row._id },
       session
     );
+    const previousStartAt = row.startAt;
     row.set({
       startAt: body.startAt,
       endAt,
@@ -343,6 +350,11 @@ export async function rescheduleAppointment(req: Request) {
     });
     await row.save({ session });
     await reserveIfAllowance(req, quoted.quote, row, session);
+    await enqueueForMember(
+      row.memberId,
+      (account) => bookingRescheduled(account, row, previousStartAt),
+      session
+    );
     await audit(req, "rescheduled", "Appointment", String(row._id), String(row.memberId), session);
     return row;
   });

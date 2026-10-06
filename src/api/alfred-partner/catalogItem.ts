@@ -85,6 +85,13 @@ export function cancellationPolicyOf(service: ServiceFacts) {
   };
 }
 
+/** Labels Alfred searches by: modality, `lab` for anything done in person, and bundle parts. */
+export const tagsFor = (modality: string | null | undefined, component: boolean): string[] => [
+  modality === "virtual" ? "virtual" : "physical",
+  ...(modality === "virtual" ? [] : ["lab"]),
+  ...(component ? ["assessment_component"] : []),
+];
+
 export function toCatalogItem(service: ServiceFacts, ctx: CatalogContext): CatalogItem {
   const locations = offeredLocations(service, ctx);
   const virtual = service.modality === "virtual";
@@ -117,11 +124,7 @@ export function toCatalogItem(service: ServiceFacts, ctx: CatalogContext): Catal
     fulfilment: "standard",
     durationMin: service.durationMinutes,
     capacity: service.capacityMax ?? 1,
-    tags: [
-      virtual ? "virtual" : "physical",
-      ...(virtual ? [] : ["lab"]),
-      ...(ctx.componentIds.has(String(service._id)) ? ["assessment_component"] : []),
-    ],
+    tags: tagsFor(service.modality, ctx.componentIds.has(String(service._id))),
     // The pull sorts and watermarks on updatedAt, so it is also the item's monotonic version.
     version: service.updatedAt.getTime(),
   };

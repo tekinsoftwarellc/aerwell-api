@@ -6,6 +6,7 @@ import {
   ForbiddenError,
   NotFoundError,
 } from "../../common/errors/AppError.js";
+import { publishCatalogChange } from "../alfred-partner/outbox/catalogEvents.js";
 import { Appointment, UPCOMING_STATUSES } from "../appointment/appointment.model.js";
 import { Market } from "../catalog/catalog.model.js";
 import { assertRetailFitsPlans } from "../catalog/catalog.service.js";
@@ -194,6 +195,7 @@ export async function createService(req: Request) {
     organizationId,
   });
   await saveVersioned(req, "service", doc, "created");
+  await publishCatalogChange(organizationId, [doc._id]);
   return serialize(doc);
 }
 function editable(doc: InstanceType<typeof Service>) {
@@ -235,6 +237,7 @@ export async function patchService(req: Request) {
   const { imageUploadId, removeImage, slug, ...data } = input;
   doc.set({ ...data, ...(await applyImage(req, input)) });
   await saveVersioned(req, "service", doc, "updated");
+  await publishCatalogChange(doc.organizationId, [doc._id]);
   return serialize(doc);
 }
 export async function bulkServices(req: Request) {
@@ -255,6 +258,9 @@ export async function bulkServices(req: Request) {
     const docs = await Service.find({ _id: { $in: ids } }).session(session);
     await recordRevisions(req, "service", docs, action, session);
     return { updated: result.matchedCount };
+  }).then(async (done) => {
+    await publishCatalogChange(catalogScope(req)["organizationId"] as string, ids);
+    return done;
   });
 }
 export async function getCategories(req: Request) {

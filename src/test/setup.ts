@@ -10,6 +10,11 @@ process.env["AERWELL_ORG_ID"] = "org-test";
 process.env["ADMIN_BASE_URL"] = "http://localhost:3200";
 // Alfred partner contract: the org Alfred holds for Aerwell (tokens are minted in test/partnerFixture.ts).
 process.env["ALFRED_PARTNER_ORG_ID"] = "alfred-org-aerwell";
+// The outbox publishes to these; tests stub fetch, so no host is ever called.
+process.env["ALFRED_API_URL"] = "https://alfred.test";
+process.env["ALFRED_AUTH_URL"] = "https://auth.alfred.test";
+process.env["ALFRED_AUTH_CLIENT_ID"] = "partner-aerwell-test";
+process.env["ALFRED_AUTH_CLIENT_SECRET"] = "test-secret-value";
 // The global per-IP limiter would count every request a whole test file makes.
 process.env["RATE_LIMIT_MAX"] = "1000000";
 let mongoServer: MongoMemoryReplSet;

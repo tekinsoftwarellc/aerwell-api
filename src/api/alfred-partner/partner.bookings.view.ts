@@ -41,7 +41,8 @@ export function paymentView(row: Row) {
         : "none";
   return {
     status,
-    amountCents: ext.amountCents ?? row.amountDueCents ?? 0,
+    // Aerwell's own staff bookings carry no Alfred payment: Alfred charged nothing for them.
+    amountCents: ext.amountCents ?? 0,
     currency: ext.currency ?? "usd",
   };
 }
