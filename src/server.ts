@@ -23,6 +23,7 @@ import { memberRouter } from "./api/member/member.router.js";
 import { notificationRouter } from "./api/notification/notification.router.js";
 import { schedulingRouter } from "./api/schedule/schedule.router.js";
 import { serviceRouter } from "./api/service/service.router.js";
+import { publicServiceImageRouter } from "./api/service/serviceImage.public.js";
 import { settingsRouter } from "./api/settings/settings.router.js";
 import { staffRouter } from "./api/staff/staff.router.js";
 import { supplementRouter } from "./api/supplement/supplement.js";
@@ -86,6 +87,8 @@ export const createServer = (cache: CacheService = createCacheService()): Expres
   if (partnerContractEnabled()) app.use("/api/v1/alfred", createPartnerRouter(cache));
   app.use("/api/v1", partnerOutboxRouter);
   app.use("/api/v1", createAlfredRouter(cache));
+  // Public catalog image links (Alfred stores them); independent of the partner contract flag.
+  app.use("/api/v1", publicServiceImageRouter);
   app.use((_req, _res, next) => next(new NotFoundError("Route not found")));
   app.use(errorHandler);
   return app;

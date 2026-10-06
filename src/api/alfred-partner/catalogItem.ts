@@ -1,6 +1,7 @@
 import { Market } from "../catalog/catalog.model.js";
 import { Location } from "../location/location.model.js";
 import { Service } from "../service/service.model.js";
+import { serviceImageLink } from "../service/serviceImage.public.js";
 
 type ServiceRow = InstanceType<typeof Service>;
 type ServiceFacts = Pick<
@@ -18,6 +19,7 @@ type ServiceFacts = Pick<
   | "capacityMax"
   | "basePriceCents"
   | "updatedAt"
+  | "imageKey"
 > & { _id: unknown; lateCancellationFee?: ServiceRow["lateCancellationFee"] | null };
 
 export interface CatalogItem {
@@ -101,12 +103,13 @@ export function toCatalogItem(service: ServiceFacts, ctx: CatalogContext): Catal
       service.status !== "active" || (!virtual && locations.length === 0)
       ? "inactive"
       : "active";
+  const image = serviceImageLink(service);
   return {
     partnerRef: service.slug ?? "",
     kind: "services",
     title: service.title,
     description: service.description ?? "",
-    media: [],
+    media: image ? [{ url: image, kind: "image" }] : [],
     pricing:
       service.basePriceCents == null
         ? []

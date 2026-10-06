@@ -33,6 +33,8 @@ export const envObject = z.object({
   AWS_S3_BUCKET: z.string().optional(),
   SES_FROM_EMAIL: z.string().email().optional(),
   ADMIN_BASE_URL: z.string().url().optional(),
+  // This API's own public origin, for links handed to others (catalog image URLs). Unset = no media.
+  PUBLIC_API_URL: z.string().url().optional(),
   AERWELL_ORG_ID: z.string().optional(),
   // Payments stay unconfigured until both Stripe keys are supplied (W5).
   STRIPE_SECRET_KEY: z.string().startsWith("sk_").optional(),

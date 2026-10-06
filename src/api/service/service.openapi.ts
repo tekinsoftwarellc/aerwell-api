@@ -280,4 +280,28 @@ export const servicePaths = {
       },
     }),
   },
+  "/api/v1/public/service-images/{slug}": {
+    get: {
+      summary: "Public: redirect to a short-lived signed URL of an active service's image",
+      tags: ["Services"],
+      parameters: [
+        { name: "slug", in: "path", required: true, schema: fields.slug },
+        {
+          name: "v",
+          in: "query",
+          required: false,
+          description: "Cache buster; changes when the image is replaced",
+          schema: { type: "string", pattern: "^[\\w-]{1,64}$" },
+        },
+      ],
+      responses: {
+        "302": {
+          description:
+            "Location is a presigned S3 GET valid 300 s; Cache-Control public, max-age=240",
+        },
+        "400": { description: "Invalid slug or query" },
+        "404": { description: "No active service with an image" },
+      },
+    },
+  },
 };
