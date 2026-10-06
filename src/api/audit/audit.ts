@@ -1,5 +1,6 @@
 import type { Request } from "express";
 import { type ClientSession, Schema, model } from "mongoose";
+import { env } from "../../config/env.js";
 const schema = new Schema(
   {
     organizationId: { type: String, required: true, index: true },
@@ -32,19 +33,24 @@ schema.pre("save", function () {
   if (!this.isNew) throw new Error("Audit events are append-only");
 });
 export const AuditEvent = model("AuditEvent", schema);
-/** `req` may be a real request or a socket's actor context (staff + requestId). */
+/**
+ * `req` may be a real request or a socket's actor context (staff + requestId). An Alfred partner
+ * call has no staff member: the actor is the calling service, recorded as `partner:<svc>`.
+ */
 export async function audit(
-  req: Pick<Request, "staff" | "requestId">,
+  req: Pick<Request, "staff" | "requestId" | "partner">,
   action: string,
   targetType: string,
   targetId: string,
   memberId?: string,
   session?: ClientSession
 ): Promise<void> {
-  if (!req.staff) throw new Error("Audit actor missing");
+  const organizationId =
+    req.staff?.organizationId ?? (req.partner ? env.AERWELL_ORG_ID : undefined);
+  if (!(organizationId && (req.staff || req.partner))) throw new Error("Audit actor missing");
   const event = {
-    organizationId: req.staff.organizationId,
-    actorId: String(req.staff._id),
+    organizationId,
+    actorId: req.staff ? String(req.staff._id) : `partner:${req.partner?.svc}`,
     action,
     targetType,
     targetId,

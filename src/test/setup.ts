@@ -8,6 +8,8 @@ process.env["MONGODB_URI"] = "mongodb://127.0.0.1:27017/aerwell-test-placeholder
 process.env["STAFF_JWT_SECRET"] = "test-only-signing-key-not-for-deployment-12345";
 process.env["AERWELL_ORG_ID"] = "org-test";
 process.env["ADMIN_BASE_URL"] = "http://localhost:3200";
+// Alfred partner contract: the org Alfred holds for Aerwell (tokens are minted in test/partnerFixture.ts).
+process.env["ALFRED_PARTNER_ORG_ID"] = "alfred-org-aerwell";
 // The global per-IP limiter would count every request a whole test file makes.
 process.env["RATE_LIMIT_MAX"] = "1000000";
 let mongoServer: MongoMemoryReplSet;

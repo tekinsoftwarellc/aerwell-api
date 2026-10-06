@@ -39,6 +39,8 @@ const memberSchema = new Schema(
   {
     organizationId: { type: String, required: true, index: true },
     alfredAccountId: { type: String, default: undefined },
+    // Set when Alfred reports `member.deleted`. The clinical record is never deleted.
+    alfredUnlinkedAt: { type: Date, default: null },
     firstName: { type: String, required: true, trim: true },
     lastName: { type: String, required: true, trim: true },
     email: { type: String, required: true, trim: true, lowercase: true },

@@ -6,6 +6,11 @@ import mongoSanitize from "express-mongo-sanitize";
 import helmet from "helmet";
 import hpp from "hpp";
 import swaggerUi from "swagger-ui-express";
+import { PARTNER_PATH } from "./api/alfred-partner/partner.paths.js";
+import {
+  createPartnerRouter,
+  partnerContractEnabled,
+} from "./api/alfred-partner/partner.router.js";
 import { createAlfredRouter } from "./api/alfred/alfred.router.js";
 import { appointmentRouter } from "./api/appointment/appointment.router.js";
 import { createAuthRouter, meRouter } from "./api/auth/auth.router.js";
@@ -41,7 +46,10 @@ export const createServer = (cache: CacheService = createCacheService()): Expres
   const origins = env.CORS_ORIGIN.split(",").map((origin) => origin.trim());
   app.use(cors({ origin: origins.includes("*") ? true : origins, credentials: true }));
   app.use(compression());
-  app.use(createRateLimiter(cache));
+  // Alfred is one IP; partner routes carry their own limiters (partner.router.ts).
+  app.use(
+    createRateLimiter(cache, (req) => partnerContractEnabled() && PARTNER_PATH.test(req.path))
+  );
   app.use(requestLogger);
   // Raw body for signature verification: must precede the JSON parser.
   app.use("/api/v1", webhookRouter);
@@ -73,6 +81,8 @@ export const createServer = (cache: CacheService = createCacheService()): Expres
   app.use("/api/v1", visitRouter);
   // W10 Alfred AI + draft supplement orders (appended; self-contained routers).
   app.use("/api/v1", supplementRouter);
+  // D1 partner contract: guarded per route, so the staff assistant router below is untouched.
+  if (partnerContractEnabled()) app.use("/api/v1/alfred", createPartnerRouter(cache));
   app.use("/api/v1", createAlfredRouter(cache));
   app.use((_req, _res, next) => next(new NotFoundError("Route not found")));
   app.use(errorHandler);

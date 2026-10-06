@@ -13,6 +13,8 @@ export type AlfredKeyProvider = (kid: string) => Promise<string>;
 
 /** JWKS cache TTL — contracts §1.1: 10 minutes, plus one forced re-fetch on a kid miss. */
 const JWKS_CACHE_TTL_MS = 10 * 60 * 1000;
+/** A forced re-fetch needs the cache to be this old, so random `kid`s cannot make us hammer alfred-auth. */
+const MIN_REFETCH_INTERVAL_MS = 30 * 1000;
 
 interface JwksResponse {
   keys: (JsonWebKey & { kid?: string })[];
@@ -44,7 +46,12 @@ export const createJwksKeyProvider = (url: string): AlfredKeyProvider => {
     const fresh = cache && Date.now() - cache.fetchedAt < JWKS_CACHE_TTL_MS;
     let pems = fresh && cache ? cache.pems : await load();
 
-    if (!pems.has(kid) && fresh) {
+    if (
+      !pems.has(kid) &&
+      fresh &&
+      cache &&
+      Date.now() - cache.fetchedAt >= MIN_REFETCH_INTERVAL_MS
+    ) {
       // Key rotation: the signing key may have changed inside the cache window.
       // Exactly one forced re-fetch, then fail closed.
       pems = await load();

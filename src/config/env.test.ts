@@ -63,6 +63,32 @@ describe("environment contract", () => {
   });
 });
 
+describe("D1: partner contract settings", () => {
+  const partner = {
+    ALFRED_PARTNER_ORG_ID: "alfred-org",
+    ALFRED_AUTH_JWKS_URL: "https://api-alfred.example.com/.well-known/jwks.json",
+  };
+  it("is opt-in in production and cannot be enabled without the keys to verify Alfred", () => {
+    expect(envSchema.safeParse(production).success).toBe(true);
+    expect(envSchema.safeParse({ ...production, PARTNER_CONTRACT_ENABLED: "true" }).success).toBe(
+      false
+    );
+    expect(
+      envSchema.safeParse({ ...production, ...partner, PARTNER_CONTRACT_ENABLED: "true" }).success
+    ).toBe(true);
+  });
+  it("defaults the audience and the outbox tuning", () => {
+    const parsed = envSchema.parse({ MONGODB_URI: "mongodb://127.0.0.1/test" });
+    expect(parsed).toMatchObject({
+      ALFRED_PARTNER_AUDIENCE: "partner-aerwell",
+      PARTNER_OUTBOX_INTERVAL_MS: 5000,
+      PARTNER_OUTBOX_BATCH_SIZE: 50,
+      PARTNER_OUTBOX_MAX_ATTEMPTS: 12,
+      PARTNER_OUTBOX_PUBLISH_TIMEOUT_MS: 5000,
+    });
+  });
+});
+
 describe("W11: deploy start script", () => {
   const script = readFileSync(new URL("../../scripts/start_server.sh", import.meta.url), "utf8");
   it("strips every environment key before pm2 start, so pm2 cannot bake a stale value", () => {
