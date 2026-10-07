@@ -124,6 +124,7 @@ export const bookingParams = z.object({ bookingRef: z.string().min(1).max(64) })
 export const rescheduleBody = z.object({ slotRef: z.string().min(1).max(500), entitlement });
 export const cancelBody = z.object({ reason: z.string().trim().max(500).optional() });
 export const anyBody = z.object({});
+export const reportParams = z.object({ reportRef: ref }).strict();
 
 export const ordersQuery = z
   .object({

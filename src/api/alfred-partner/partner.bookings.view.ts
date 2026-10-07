@@ -4,6 +4,7 @@ import { Location } from "../location/location.model.js";
 import { Role } from "../role/role.model.js";
 import { Service } from "../service/service.model.js";
 import { StaffMember } from "../staff/staff.model.js";
+import { clinicalStatus } from "./clinicalReport.js";
 
 type Row = AppointmentData & { _id: unknown; updatedAt?: Date };
 /** Aerwell's lifecycle in the booking vocabulary of contract §5.7. */
@@ -52,7 +53,7 @@ export async function loadRefs(rows: Row[]) {
   const ids = (pick: (r: Row) => unknown) => [...new Set(rows.map((r) => String(pick(r))))];
   const [services, locations, staff] = await Promise.all([
     Service.find({ _id: { $in: ids((r) => r.serviceId) } })
-      .select("slug title")
+      .select("slug title fulfilment")
       .lean(),
     Location.find({ _id: { $in: ids((r) => r.locationId) } })
       .select("name")
@@ -111,13 +112,24 @@ export function bookingView(row: Row, refs: Refs, status = partnerStatus(row)) {
   };
 }
 
-/** One row of the `GET /orders` stream. */
-export function orderItem(row: Row, accountId: string, refs: Refs) {
+/**
+ * One row of the `GET /orders` stream. A clinical service's visit is a `clinical` order (§5.11);
+ * `readyReports` holds the appointments that already have a ready report.
+ */
+export function orderItem(
+  row: Row,
+  accountId: string,
+  refs: Refs,
+  readyReports: ReadonlySet<string> = new Set()
+) {
+  const clinical = refs.service.get(String(row.serviceId))?.fulfilment === "clinical";
   return {
-    kind: "booking" as const,
+    kind: clinical ? ("clinical" as const) : ("booking" as const),
     ref: String(row._id),
     accountId,
-    status: partnerStatus(row),
+    status: clinical
+      ? clinicalStatus(row.status, readyReports.has(String(row._id)))
+      : partnerStatus(row),
     startAt: row.startAt,
     endAt: row.endAt,
     itemRef: refs.service.get(String(row.serviceId))?.slug,

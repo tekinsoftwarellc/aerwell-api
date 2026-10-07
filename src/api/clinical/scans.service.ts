@@ -18,6 +18,7 @@ import {
 import { deltaPct } from "./labs.service.js";
 import { computeStatus, referenceLabels, resolveReference } from "./range.js";
 import { SCAN_METRICS, Scan } from "./records.model.js";
+import { assertVisit, enqueueReportReady } from "./reportLink.js";
 
 type Metric = (typeof SCAN_METRICS)[number];
 // Scan metrics read their ranges from the same editable catalog as labs.
@@ -64,6 +65,7 @@ async function createScanRow(req: Request) {
   const member = await clinicalMember(req, "LABS_SCANS", true);
   const { metrics, findings, documentUploadId, ...fields } = req.body;
   const built = await buildMetrics(member, metrics);
+  if (fields.appointmentId) await assertVisit(member, fields.appointmentId);
   const upload = await verifyDocument(req, documentUploadId);
   return auditedWrite(req, member, { action: "created", targetType: "Scan" }, async (session) => {
     const [row] = await Scan.create(
@@ -160,7 +162,10 @@ async function reviewScanRow(req: Request) {
       },
       { new: true, session }
     );
-    if (row) return row;
+    if (row) {
+      await enqueueReportReady("scan", row, session);
+      return row;
+    }
     if (await Scan.exists(filter).session(session))
       throw new ConflictError("Scan is already reviewed", undefined, "ALREADY_REVIEWED");
     throw new NotFoundError("Scan not found");

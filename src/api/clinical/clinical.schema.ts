@@ -95,6 +95,7 @@ export const panelCreate = z
     drawType: optionalText(80),
     drawLocation: optionalText(),
     nextPanelDue: dateOnly.optional(),
+    appointmentId: objectId.optional(),
     isBaseline: z.boolean().optional(),
     results: z.array(resultInput).max(120).default([]),
     findings: z.array(findingInput).max(20).default([]),
@@ -116,6 +117,7 @@ export const panelQuery = z
     q: z.string().trim().max(80).optional(),
   })
   .strict();
+export const linkVisitBody = z.object({ appointmentId: objectId }).strict();
 export const reviewBody = z.object({ findings: z.array(findingInput).max(20).optional() }).strict();
 export const trendParams = idParams.extend({ biomarkerId: objectId }).strict();
 export const trendQuery = z
@@ -166,6 +168,7 @@ export const scanCreate = z
     isBaseline: z.boolean().optional(),
     findings: z.array(findingInput).max(20).default([]),
     documentUploadId: objectId.optional(),
+    appointmentId: objectId.optional(),
   })
   .strict();
 export const scanParams = idParams.extend({ scanId: objectId }).strict();

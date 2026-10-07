@@ -20,6 +20,10 @@ const review = {
   reviewedById: Schema.Types.ObjectId,
   reviewedAt: Date,
   documentUploadId: Schema.Types.ObjectId,
+  // The visit this result belongs to; its _id is the partner `bookingRef` (Alfred report link).
+  appointmentId: { type: Schema.Types.ObjectId, ref: "Appointment", default: null },
+  // Set when a report must never be served again (partner contract 5.11: answers 410).
+  withdrawnAt: { type: Date, default: null },
   source: { type: String, enum: ["manual", "pdf", "vendor_feed"], default: "manual" },
   isBaseline: { type: Boolean, default: false },
   findings: { type: [finding], default: [] },
@@ -66,6 +70,7 @@ const panelSchema = new Schema(
   { timestamps: true, minimize: false }
 );
 panelSchema.index({ organizationId: 1, memberId: 1, drawnAt: -1 });
+panelSchema.index({ organizationId: 1, appointmentId: 1 }, { sparse: true });
 // W11: the dashboard's "new results" review queue (count + newest first).
 panelSchema.index({ organizationId: 1, reviewStatus: 1, createdAt: -1, _id: -1 });
 export type LabPanelData = InferSchemaType<typeof panelSchema>;
@@ -140,6 +145,7 @@ const scanSchema = new Schema(
   { timestamps: true, minimize: false }
 );
 scanSchema.index({ organizationId: 1, memberId: 1, type: 1, performedAt: -1 });
+scanSchema.index({ organizationId: 1, appointmentId: 1 }, { sparse: true });
 scanSchema.index({ organizationId: 1, reviewStatus: 1, createdAt: -1, _id: -1 });
 export type ScanData = InferSchemaType<typeof scanSchema>;
 export const Scan = model("Scan", scanSchema);

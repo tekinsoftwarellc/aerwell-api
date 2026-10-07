@@ -28,6 +28,7 @@ import {
   resolveReference,
 } from "./range.js";
 import { LabPanel } from "./records.model.js";
+import { assertVisit, enqueueReportReady } from "./reportLink.js";
 
 type Marker = BiomarkerData & { _id: unknown };
 interface StoredResult {
@@ -120,6 +121,7 @@ async function createPanelRow(req: Request) {
   const built = results.map((r: { biomarkerId: string; value: ResultValue }) =>
     buildResult(markers.get(r.biomarkerId) as Marker, r.value, member.sex)
   );
+  if (fields.appointmentId) await assertVisit(member, fields.appointmentId);
   const upload = await verifyDocument(req, documentUploadId);
   return auditedWrite(
     req,
@@ -239,7 +241,10 @@ async function reviewPanelRow(req: Request) {
         },
         { new: true, session, projection: { results: 0 } }
       );
-      if (row) return row;
+      if (row) {
+        await enqueueReportReady("lab", row, session);
+        return row;
+      }
       if (await LabPanel.exists(filter).session(session))
         throw new ConflictError("Panel is already reviewed", undefined, "ALREADY_REVIEWED");
       throw new NotFoundError("Lab panel not found");
