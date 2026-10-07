@@ -21,6 +21,7 @@ const serviceObject = z
     status: z.enum(["active", "inactive"]).default("active"),
     slug: slug.optional(),
     modality: z.enum(["physical", "virtual"]).default("physical"),
+    fulfilment: z.enum(["standard", "clinical"]).default("standard"),
     marketScope: z.enum(["all", "listed"]).default("listed"),
     marketIds: uniqueIds(50, "Markets"),
     bundleComponentIds: uniqueIds(20, "Bundle components"),

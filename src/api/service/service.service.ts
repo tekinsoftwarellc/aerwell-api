@@ -206,6 +206,7 @@ function editable(doc: InstanceType<typeof Service>) {
     status: doc.status,
     categoryId: String(doc.categoryId),
     modality: doc.modality,
+    fulfilment: doc.fulfilment,
     marketScope: doc.marketScope,
     marketIds: doc.marketIds.map(String),
     bundleComponentIds: doc.bundleComponentIds.map(String),

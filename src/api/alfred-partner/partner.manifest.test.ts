@@ -76,6 +76,15 @@ describe("partner manifest builder", () => {
       })
     ).toThrow(/CHANGE ME/);
   });
+  it("declares the capabilities given in the client values, services by default", async () => {
+    const location = await vegas();
+    const client = clientFor([String(location._id)]);
+    const rows = [{ ...location.toObject(), _id: location._id } as never];
+    const clinical = buildManifest(rows, { ...client, capabilities: ["clinical", "services"] });
+    expect(clinical.capabilities).toEqual(["clinical", "services"]);
+    expect(validate(clinical), JSON.stringify(validate.errors)).toBe(true);
+    expect(buildManifest(rows, client).capabilities).toEqual(["services"]);
+  });
   it("closed days publish as empty hours", async () => {
     const location = await vegas();
     const hours = location

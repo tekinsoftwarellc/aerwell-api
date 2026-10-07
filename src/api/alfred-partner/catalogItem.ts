@@ -12,6 +12,7 @@ type ServiceFacts = Pick<
   | "status"
   | "deletedAt"
   | "modality"
+  | "fulfilment"
   | "marketScope"
   | "marketIds"
   | "locationId"
@@ -32,7 +33,7 @@ export interface CatalogItem {
   locations: string[];
   visibility: "all";
   status: "active" | "inactive" | "deleted";
-  fulfilment: "standard";
+  fulfilment: "standard" | "clinical";
   durationMin: number;
   capacity: number;
   tags: string[];
@@ -124,7 +125,7 @@ export function toCatalogItem(service: ServiceFacts, ctx: CatalogContext): Catal
     locations,
     visibility: "all",
     status,
-    fulfilment: "standard",
+    fulfilment: service.fulfilment === "clinical" ? "clinical" : "standard",
     durationMin: service.durationMinutes,
     capacity: service.capacityMax ?? 1,
     tags: tagsFor(service.modality, ctx.componentIds.has(String(service._id))),
