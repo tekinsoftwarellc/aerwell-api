@@ -44,6 +44,7 @@ describe("prescription covers one purchase up to its quantity", () => {
     const p = await prescribed(w, 2);
     const over = await order(w, p.sku, 3);
     expect([over.status, over.body.data.code]).toEqual([409, "MEMBERSHIP_REQUIRED"]);
+    expect(over.body.message).toMatch(/smaller quantity/);
     expect((await SupplementProduct.findById(p._id).lean())?.stock).toBe(10);
     expect((await rx(p._id))?.claimedByOrderId).toBeNull();
     expect((await order(w, p.sku, 2)).status).toBe(201);
@@ -56,6 +57,7 @@ describe("prescription covers one purchase up to its quantity", () => {
     expect((await order(w, p.sku, 1)).status).toBe(201);
     const again = await order(w, p.sku, 1);
     expect([again.status, again.body.data.code]).toEqual([409, "MEMBERSHIP_REQUIRED"]);
+    expect(again.body.message).toMatch(/already been used/);
     expect(await listed(p.sku)).toBe(false);
   });
 
@@ -145,7 +147,9 @@ describe("prescription covers one purchase up to its quantity", () => {
       status: "active",
     });
     await w.prescribe(p._id, other._id, 3);
-    expect((await order(w, p.sku, 1)).status).toBe(409);
+    const none = await order(w, p.sku, 1);
+    expect(none.status).toBe(409);
+    expect(none.body.message).toMatch(/none is on file/);
   });
 
   it("a late payment on a released order leaves the prescription a newer order holds untouched", async () => {
