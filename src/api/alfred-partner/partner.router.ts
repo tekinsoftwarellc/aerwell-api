@@ -18,6 +18,7 @@ import { exportReport, getReport } from "./partner.clinical.controller.js";
 import { receiveEvent } from "./partner.events.controller.js";
 import { provisionMember } from "./partner.members.controller.js";
 import { listOrders } from "./partner.orders.controller.js";
+import { cancelOrder, createOrder, getOrder } from "./partner.productOrders.controller.js";
 import {
   anyBody,
   availabilityQuery,
@@ -28,6 +29,8 @@ import {
   catalogItemQuery,
   catalogQuery,
   eventBody,
+  orderBody,
+  orderParams,
   ordersQuery,
   provisionBody,
   reportParams,
@@ -147,6 +150,23 @@ export const createPartnerRouter = (cache: CacheService): Router => {
     idempotent(),
     validate({ ...own, body: anyBody }),
     asyncHandler(checkInBooking)
+  );
+  // §5.10: product orders (capability `products`). Writes claim their Idempotency-Key first.
+  router.post(
+    "/orders",
+    ...guard.member,
+    idempotent(),
+    validate({ ...nothing, body: orderBody }),
+    asyncHandler(createOrder)
+  );
+  const ownOrder = { ...nothing, params: orderParams };
+  router.get("/orders/:orderRef", ...guard.member, validate(ownOrder), asyncHandler(getOrder));
+  router.post(
+    "/orders/:orderRef/cancel",
+    ...guard.member,
+    idempotent(),
+    validate({ ...ownOrder, body: cancelBody }),
+    asyncHandler(cancelOrder)
   );
   // §5.10: the orders sync stream. `act` is ignored unless `accountId` is asked for.
   router.get(

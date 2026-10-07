@@ -21,6 +21,8 @@ import { healthRouter } from "./api/health/health.router.js";
 import { createInviteRouter } from "./api/invite/invite.router.js";
 import { memberRouter } from "./api/member/member.router.js";
 import { notificationRouter } from "./api/notification/notification.router.js";
+import { productRouter } from "./api/product/product.router.js";
+import { publicProductImageRouter } from "./api/product/productImage.public.js";
 import { schedulingRouter } from "./api/schedule/schedule.router.js";
 import { serviceRouter } from "./api/service/service.router.js";
 import { publicServiceImageRouter } from "./api/service/serviceImage.public.js";
@@ -83,12 +85,14 @@ export const createServer = (cache: CacheService = createCacheService()): Expres
   app.use("/api/v1", visitRouter);
   // W10 Alfred AI + draft supplement orders (appended; self-contained routers).
   app.use("/api/v1", supplementRouter);
+  app.use("/api/v1", productRouter);
   // D1 partner contract: guarded per route, so the staff assistant router below is untouched.
   if (partnerContractEnabled()) app.use("/api/v1/alfred", createPartnerRouter(cache));
   app.use("/api/v1", partnerOutboxRouter);
   app.use("/api/v1", createAlfredRouter(cache));
   // Public catalog image links (Alfred stores them); independent of the partner contract flag.
   app.use("/api/v1", publicServiceImageRouter);
+  app.use("/api/v1", publicProductImageRouter);
   app.use((_req, _res, next) => next(new NotFoundError("Route not found")));
   app.use(errorHandler);
   return app;

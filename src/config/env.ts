@@ -28,6 +28,8 @@ export const envObject = z.object({
   PARTNER_OUTBOX_BATCH_SIZE: z.coerce.number().int().min(1).max(200).default(50),
   PARTNER_OUTBOX_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(50).default(12),
   PARTNER_OUTBOX_PUBLISH_TIMEOUT_MS: z.coerce.number().int().min(500).default(5000),
+  // Flat product shipping in cents (Q11). Unset = free shipping: a price is the client's to set.
+  PRODUCT_SHIPPING_FLAT_CENTS: z.coerce.number().int().min(0).max(100_000).default(0),
   STAFF_JWT_SECRET: z.string().min(32).optional(),
   AWS_REGION: z.string().optional(),
   AWS_S3_BUCKET: z.string().optional(),

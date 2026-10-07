@@ -22,6 +22,13 @@ const productSchema = new Schema(
     size: { type: String, default: null },
     priceCents: { type: Number, required: true, min: 0 },
     active: { type: Boolean, default: true },
+    // Product sales (contract `products`). A product is sold only while `forSale` and `active`, and
+    // only to a member a clinician prescribed it to (a SupplementOrder draft is that offer).
+    description: { type: String, default: "" },
+    imageKey: String,
+    stock: { type: Number, default: 0, min: 0 },
+    weightGrams: { type: Number, default: null, min: 0 },
+    forSale: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

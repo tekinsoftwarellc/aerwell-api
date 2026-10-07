@@ -6,6 +6,7 @@ import { ServiceResponse } from "../../common/models/serviceResponse.js";
 import { env } from "../../config/env.js";
 import { Appointment } from "../appointment/appointment.model.js";
 import { Member } from "../member/member.model.js";
+import { recordProductPaid, recordProductRefund } from "../product/productOrder.service.js";
 import type { eventBody } from "./partner.schema.js";
 import { STALE_CLAIM_MS } from "./partnerIdempotency.js";
 import { PartnerIdempotencyKey } from "./partnerIdempotency.model.js";
@@ -35,8 +36,12 @@ async function bookingOf(organizationId: string, event: Event) {
   return owner ? row : null;
 }
 
+/** A payment event about a product order names `kind: "purchase"`; anything else is a booking. */
+const isPurchase = (event: Event) => event.payload["kind"] === "purchase";
+
 /** `order.paid`: Alfred charged a booking that was accepted unpaid. Never moves a refunded payment back. */
 async function recordPaid(organizationId: string, event: Event) {
+  if (isPurchase(event)) return recordProductPaid(organizationId, event);
   const row = await bookingOf(organizationId, event);
   if (!row || (row.externalPayment as { refundedAt?: Date } | undefined)?.refundedAt) return;
   const paid = event.payload["amountCents"];
@@ -55,6 +60,7 @@ async function recordPaid(organizationId: string, event: Event) {
 }
 
 async function recordRefund(organizationId: string, event: Event) {
+  if (isPurchase(event)) return recordProductRefund(organizationId, event);
   const row = await bookingOf(organizationId, event);
   if (!row) return;
   const refunded = event.payload["amountCents"];

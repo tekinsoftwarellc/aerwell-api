@@ -6,6 +6,7 @@ import { catalogPaths } from "../api/catalog/catalog.openapi.js";
 import { clinicalPaths } from "../api/clinical/clinical.openapi.js";
 import { dashboardPaths } from "../api/dashboard/dashboard.openapi.js";
 import { memberPaths } from "../api/member/member.openapi.js";
+import { productPaths } from "../api/product/product.openapi.js";
 import { schedulePaths } from "../api/schedule/schedule.openapi.js";
 import { servicePaths } from "../api/service/service.openapi.js";
 import { settingsPaths } from "../api/settings/settings.openapi.js";
@@ -42,6 +43,7 @@ export const swaggerSpec = {
     // W9 visit workspace (appended).
     ...visitPaths,
     ...supplementPaths,
+    ...productPaths,
     ...alfredPaths,
     ...partnerOutboxPaths,
     "/api/v1/health": {
