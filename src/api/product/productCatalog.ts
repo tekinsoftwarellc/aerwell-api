@@ -44,7 +44,9 @@ export function toProductItem(p: ProductFacts) {
       { mode: "one_time" as const, amountCents: p.priceCents, currency: "usd", tierKeys: [] },
     ],
     locations: [] as string[],
-    visibility: "all" as const,
+    // Clinician-prescribed: Alfred shows the item only to a member this partner confirms through
+    // `GET /catalog?accountId` (contract post-freeze correction 7), which lists the unused prescriptions.
+    visibility: "per_member" as const,
     status: p.active && p.forSale ? ("active" as const) : ("inactive" as const),
     fulfilment: "standard" as const,
     tags: ["product"],
@@ -69,4 +71,11 @@ export async function publishProductChange(organizationId: string, productId: un
   } catch (error) {
     logger.error({ errorType: (error as Error).name }, "product catalog event could not be queued");
   }
+}
+
+/** Re-send every product of the org to Alfred (one-off, after a catalogue-shape change). Returns the count. */
+export async function republishProducts(organizationId: string): Promise<number> {
+  const rows = await SupplementProduct.find({ organizationId }).select("_id").lean();
+  for (const row of rows) await publishProductChange(organizationId, row._id);
+  return rows.length;
 }

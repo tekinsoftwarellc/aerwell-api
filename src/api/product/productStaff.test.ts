@@ -13,6 +13,7 @@ import { type ProductWorld, productWorld } from "../../test/productFixture.js";
 import { app } from "../../test/scheduleFixture.js";
 import { PartnerOutbox } from "../alfred-partner/outbox/partnerOutbox.model.js";
 import { SupplementProduct } from "../supplement/supplement.js";
+import { republishProducts } from "./productCatalog.js";
 import { ProductOrder } from "./productOrder.model.js";
 
 beforeEach(() => {
@@ -130,6 +131,29 @@ describe("staff product catalog", () => {
   });
 });
 
+describe("republishProducts", () => {
+  it("queues one catalog.upserted per product, per_member, for that org only", async () => {
+    const mk = (organizationId: string, sku: string) =>
+      SupplementProduct.create({
+        organizationId,
+        sku,
+        name: sku,
+        priceCents: 100,
+        stock: 1,
+        forSale: true,
+      });
+    await mk("org-test", "one");
+    await mk("org-test", "two");
+    await mk("org-other", "three");
+    expect(await republishProducts("org-test")).toBe(2);
+    const events = await outbox("catalog.upserted");
+    expect(events.map((e) => e.resource.ref).sort()).toEqual(["prod_one", "prod_two"]);
+    expect(
+      events.every((e) => (e.payload as { visibility: string }).visibility === "per_member")
+    ).toBe(true);
+  });
+});
+
 describe("catalog pull carries products", () => {
   it("kind=products lists only sellable products; with no kind it merges with services; an accountId narrows to prescribed", async () => {
     const w = await partnerWorld();
@@ -167,7 +191,7 @@ describe("catalog pull carries products", () => {
     expect(products.body.data.items[0]).toMatchObject({
       kind: "products",
       fulfilment: "standard",
-      visibility: "all",
+      visibility: "per_member",
       locations: [],
     });
     const services = await org.get("/catalog?kind=services");

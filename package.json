@@ -23,6 +23,7 @@
     "seed:dev": "tsx src/scripts/seed.ts",
     "migrate:catalog": "tsx src/scripts/migrate-catalog.ts",
     "partner:manifest": "tsx src/scripts/print-partner-manifest.ts",
+    "products:republish": "tsx src/scripts/republish-products.ts",
     "clinical:fulfilment": "tsx src/scripts/set-clinical-fulfilment.ts",
     "db:sync-indexes": "node dist/scripts/sync-indexes.js",
     "seed:dist": "node dist/scripts/seed.js",
