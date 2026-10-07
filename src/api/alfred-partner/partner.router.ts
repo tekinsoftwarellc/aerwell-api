@@ -31,6 +31,7 @@ import {
   ordersQuery,
   provisionBody,
   reportParams,
+  reportQuery,
   rescheduleBody,
 } from "./partner.schema.js";
 import {
@@ -159,13 +160,13 @@ export const createPartnerRouter = (cache: CacheService): Router => {
   router.get(
     "/clinical/reports/:reportRef",
     ...guard.member,
-    validate({ ...nothing, params: reportParams }),
+    validate({ ...nothing, params: reportParams, query: reportQuery }),
     asyncHandler(getReport)
   );
   router.post(
     "/clinical/reports/:reportRef/export",
     ...guard.member,
-    validate({ ...nothing, params: reportParams, body: anyBody }),
+    validate({ ...nothing, params: reportParams, query: reportQuery, body: anyBody }),
     asyncHandler(exportReport)
   );
   // §5.13: org level. Deduped on the body's own key, so no `idempotent()`.

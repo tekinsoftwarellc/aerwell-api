@@ -12,6 +12,7 @@ import {
 } from "../../test/partnerFixture.js";
 import { partnerWorld } from "../../test/partnerWorld.js";
 import { app } from "../../test/scheduleFixture.js";
+import { AuditEvent } from "../audit/audit.js";
 import { Appointment } from "../appointment/appointment.model.js";
 import { LabPanel, Scan } from "../clinical/records.model.js";
 import { Service } from "../service/service.model.js";
@@ -165,6 +166,17 @@ describe("GET /clinical/reports/{reportRef}", () => {
     );
     expect((await strangerClient.get(`/clinical/reports/lab_${unlinked._id}`)).status).toBe(404);
   });
+  it("takes Alfred's ?accountId, 404 when it is not the acting member, 400 for other query keys", async () => {
+    const w = await world();
+    const row = await w.panel(reviewed);
+    const base = `/clinical/reports/lab_${row._id}`;
+    expect((await w.alfred.get(`${base}?accountId=${ACCOUNT}`)).status).toBe(200);
+    expect((await w.alfred.post(`${base}/export?accountId=${ACCOUNT}`)).status).toBe(200);
+    const other = "6710bb4e2f9c1a0031d5e7c1";
+    expect((await w.alfred.get(`${base}?accountId=${other}`)).status).toBe(404);
+    expect((await w.alfred.post(`${base}/export?accountId=${other}`)).status).toBe(404);
+    expect((await w.alfred.get(`${base}?other=1`)).status).toBe(400);
+  });
   it("answers 410 once withdrawn, on both endpoints", async () => {
     const w = await world();
     const row = await w.panel({ ...reviewed, withdrawnAt: new Date() });
@@ -202,6 +214,7 @@ describe("clinical.report_ready event", () => {
   it("is written with the review, names the booking, and carries no values", async () => {
     const w = await world();
     const row = await w.panel();
+    vi.setSystemTime(new Date(Date.now() + 120_000));
     const res = await w.staff.send("post", `${w.reviewPath(row._id)}/review`, {});
     expect(res.status).toBe(200);
     const [event, ...rest] = await events();
@@ -244,11 +257,43 @@ describe("clinical.report_ready event", () => {
       appointmentId: w.bookingRef,
     });
     expect(await events()).toHaveLength(1);
+    await Service.updateOne(
+      { _id: w.service("vo2-max-test") },
+      { $set: { fulfilment: "clinical" } }
+    );
     const second = await w.book("vo2-max-test", "11:00");
     const move = await w.staff.send("put", `${w.reviewPath(unlinked._id)}/visit`, {
       appointmentId: second.body.data.bookingRef,
     });
     expect([move.status, move.body.code]).toEqual([409, "REPORT_READY"]);
+  });
+  it("refuses a visit that is cancelled or for a non-clinical service", async () => {
+    const w = await world();
+    const row = await w.panel({ appointmentId: null });
+    const link = (id: unknown) =>
+      w.staff.send("put", `${w.reviewPath(row._id)}/visit`, { appointmentId: String(id) });
+    const standard = await w.book("vo2-max-test", "11:00");
+    const refused = await link(standard.body.data.bookingRef);
+    expect([refused.status, refused.body.code]).toEqual([409, "VISIT_NOT_CLINICAL"]);
+    await Appointment.updateOne({ _id: w.bookingRef }, { $set: { status: "cancelled" } });
+    expect((await link(w.bookingRef)).body.code).toBe("VISIT_NOT_CLINICAL");
+    expect((await LabPanel.findById(row._id).lean())?.appointmentId).toBeNull();
+  });
+  it("writes no event when the review rolls back", async () => {
+    const w = await world();
+    const row = await w.panel();
+    const real = AuditEvent.create.bind(AuditEvent);
+    vi.spyOn(AuditEvent, "create").mockImplementation(((
+      docs: { action?: string }[],
+      ...rest: unknown[]
+    ) =>
+      docs[0]?.action === "reviewed"
+        ? Promise.reject(new Error("audit down"))
+        : (real as (...a: unknown[]) => unknown)(docs, ...rest)) as never);
+    const res = await w.staff.send("post", `${w.reviewPath(row._id)}/review`, {});
+    expect(res.status).toBe(500);
+    expect(await events()).toHaveLength(0);
+    expect((await LabPanel.findById(row._id).lean())?.reviewStatus).toBe("new");
   });
   it("refuses a visit that is not this member's, on create and on link", async () => {
     const w = await world();

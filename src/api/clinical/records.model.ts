@@ -70,7 +70,7 @@ const panelSchema = new Schema(
   { timestamps: true, minimize: false }
 );
 panelSchema.index({ organizationId: 1, memberId: 1, drawnAt: -1 });
-panelSchema.index({ organizationId: 1, appointmentId: 1 }, { sparse: true });
+panelSchema.index({ organizationId: 1, appointmentId: 1 });
 // W11: the dashboard's "new results" review queue (count + newest first).
 panelSchema.index({ organizationId: 1, reviewStatus: 1, createdAt: -1, _id: -1 });
 export type LabPanelData = InferSchemaType<typeof panelSchema>;
@@ -145,7 +145,7 @@ const scanSchema = new Schema(
   { timestamps: true, minimize: false }
 );
 scanSchema.index({ organizationId: 1, memberId: 1, type: 1, performedAt: -1 });
-scanSchema.index({ organizationId: 1, appointmentId: 1 }, { sparse: true });
+scanSchema.index({ organizationId: 1, appointmentId: 1 });
 scanSchema.index({ organizationId: 1, reviewStatus: 1, createdAt: -1, _id: -1 });
 export type ScanData = InferSchemaType<typeof scanSchema>;
 export const Scan = model("Scan", scanSchema);

@@ -9,36 +9,50 @@ import {
   reportReadyEvent,
   visitTitle,
 } from "../alfred-partner/clinicalReport.js";
-import { enqueueForMember } from "../alfred-partner/outbox/partnerOutbox.service.js";
+import { enqueue, linkedAccount } from "../alfred-partner/outbox/partnerOutbox.service.js";
 import { Appointment } from "../appointment/appointment.model.js";
+import { Service } from "../service/service.model.js";
 import type { MemberDocument } from "../member/member.model.js";
 import { auditedWrite, byMember, clinicalMember, withoutDocument } from "./clinical.shared.js";
 
 type Row = ReportFacts & { memberId: unknown };
 
-/** The visit must be this member's in this organization: its `_id` becomes the partner `bookingRef`. */
+/**
+ * The visit must be this member's, in this organization, not cancelled and for a clinical service:
+ * its `_id` becomes the partner `bookingRef`, and Alfred ignores a report for any other visit.
+ */
 export async function assertVisit(member: MemberDocument, appointmentId: unknown) {
+  const visit = await Appointment.findOne({
+    _id: appointmentId,
+    organizationId: member.organizationId,
+    memberId: member._id,
+  })
+    .select("serviceId status")
+    .lean();
+  if (!visit) throw new NotFoundError("Visit not found");
   if (
-    !(await Appointment.exists({
-      _id: appointmentId,
-      organizationId: member.organizationId,
-      memberId: member._id,
-    }))
+    visit.status === "cancelled" ||
+    !(await Service.exists({ _id: visit.serviceId, fulfilment: "clinical" }))
   )
-    throw new NotFoundError("Visit not found");
+    throw new ConflictError(
+      "The visit must be an active clinical visit",
+      undefined,
+      "VISIT_NOT_CLINICAL"
+    );
 }
 
 /**
- * Tell Alfred the report can be read, in the same transaction as the change that made it ready.
- * Nothing is sent until reviewed, linked to a visit and a PDF is attached. The visit is touched so
- * the orders stream (keyed on updatedAt) carries the new status too.
+ * Tell Alfred the report can be read, in the same transaction as the change that made it ready, so
+ * a failure aborts the review instead of silently losing the event (it is Alfred's only source of
+ * the reportRef). Nothing is sent until reviewed, linked to a visit and a PDF is attached. The visit
+ * is touched so the orders stream (keyed on updatedAt) carries the new status too.
  */
 export async function enqueueReportReady(kind: ReportKind, row: Row, session: ClientSession) {
   if (!reportIsReady(row)) return;
-  await enqueueForMember(
-    row.memberId,
-    async (accountId) =>
-      reportReadyEvent(accountId, kind, row, await visitTitle(row.appointmentId)),
+  const accountId = await linkedAccount(row.memberId, session);
+  if (!accountId) return;
+  await enqueue(
+    reportReadyEvent(accountId, kind, row, await visitTitle(row.appointmentId)),
     session
   );
   await Appointment.updateOne(

@@ -21,11 +21,14 @@ export async function setClinicalFulfilment(organizationId: string, options: { d
       { $set: { fulfilment: "clinical", updatedAt: new Date() }, $inc: { version: 1 } },
       { timestamps: false }
     );
+  }
+  // Announced for every row on apply, not just the changed ones: the event key is the row's updatedAt,
+  // so a re-run after a failed publish repairs it and never duplicates one that went out.
+  if (!options.dryRun)
     await publishCatalogChange(
       organizationId,
-      todo.map((r) => r._id)
+      rows.map((r) => r._id)
     );
-  }
   return {
     dryRun: options.dryRun,
     alreadyClinical: rows.length - todo.length,

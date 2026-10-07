@@ -12,7 +12,7 @@ interface Query<T> {
 }
 export interface ReportModel {
   find(filter: object): Query<{ appointmentId?: unknown }>;
-  findOne(filter: object): { lean(): Promise<unknown> };
+  findOne(filter: object): { select(fields: string): { lean(): Promise<unknown> } };
 }
 export const REPORT_MODELS: Record<ReportKind, ReportModel> = {
   lab: LabPanel as unknown as ReportModel,

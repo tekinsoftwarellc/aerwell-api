@@ -125,6 +125,8 @@ export const rescheduleBody = z.object({ slotRef: z.string().min(1).max(500), en
 export const cancelBody = z.object({ reason: z.string().trim().max(500).optional() });
 export const anyBody = z.object({});
 export const reportParams = z.object({ reportRef: ref }).strict();
+/** Alfred sends `?accountId` on both report routes; when present it must be the acting member. */
+export const reportQuery = z.object({ accountId: accountId.optional() }).strict();
 
 export const ordersQuery = z
   .object({
