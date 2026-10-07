@@ -6,6 +6,18 @@ export const accountId = z.string().regex(/^[a-f\d]{24}$/i, "Invalid account id"
 const ref = z.string().trim().min(1).max(200);
 const instant = z.string().datetime({ message: "Expected an ISO 8601 UTC timestamp" });
 
+const membershipStatus = z.enum(["active", "suspended", "cancelled"]);
+
+/** §5.2 body. `validUntil` omitted means open-ended. */
+export const membershipBody = z
+  .object({
+    tierKey: z.string().min(1).max(100),
+    status: membershipStatus,
+    validUntil: instant.optional(),
+  })
+  .strict();
+export const membershipParams = z.object({ accountId }).strict();
+
 export const provisionBody = z
   .object({
     accountId,
@@ -18,11 +30,13 @@ export const provisionBody = z
       })
       .strict(),
     baseLocationRef: ref.optional(),
-    // Read and ignored: Aerwell declares no `memberships` capability (contract §5.1).
+    // Recorded on `Member.alfredMembership`, nothing more (§5.1). `validUntil` is tolerated:
+    // Alfred's sender includes it here though the contract table lists only tierKey and status.
     membership: z
       .object({
-        tierKey: z.string().max(100),
-        status: z.enum(["active", "suspended", "cancelled"]),
+        tierKey: z.string().min(1).max(100),
+        status: membershipStatus,
+        validUntil: instant.optional(),
       })
       .strict()
       .nullable()

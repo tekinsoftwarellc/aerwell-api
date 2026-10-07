@@ -41,6 +41,20 @@ const memberSchema = new Schema(
     alfredAccountId: { type: String, default: undefined },
     // Set when Alfred reports `member.deleted`. The clinical record is never deleted.
     alfredUnlinkedAt: { type: Date, default: null },
+    // RECORD ONLY: the membership Alfred last reported (contract §5.2). Never read by the
+    // entitlement evaluator and never creates a MemberMembership, ledger or plan row.
+    alfredMembership: {
+      type: new Schema(
+        {
+          tierKey: { type: String, required: true },
+          status: { type: String, enum: ["active", "suspended", "cancelled"], required: true },
+          validUntil: { type: Date, default: undefined },
+          updatedAt: { type: Date, required: true },
+        },
+        { _id: false }
+      ),
+      default: undefined,
+    },
     firstName: { type: String, required: true, trim: true },
     // Optional: Alfred sends one name at most and never an email (contract §5.1).
     lastName: { type: String, trim: true, default: "" },

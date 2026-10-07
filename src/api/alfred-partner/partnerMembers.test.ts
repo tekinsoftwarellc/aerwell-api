@@ -22,7 +22,7 @@ const body = (extra: Record<string, unknown> = {}) => ({
 const client = () => alfredClient(app);
 
 describe("POST /members", () => {
-  it("creates an active member with no email, links it by account id, and ignores the membership", async () => {
+  it("creates an active member with no email, links it by account id, and records the membership without a plan", async () => {
     const res = await client().post("/members", body());
     expect(res.status).toBe(201);
     expect(res.body.data).toMatchObject({ created: true });
@@ -37,6 +37,7 @@ describe("POST /members", () => {
       status: "active",
     });
     expect(member?.email).toBeUndefined();
+    expect(member?.alfredMembership).toMatchObject({ tierKey: "everhaus", status: "active" });
     expect(await MemberMembership.countDocuments()).toBe(0);
   });
   it("accepts one name and no profile extras", async () => {

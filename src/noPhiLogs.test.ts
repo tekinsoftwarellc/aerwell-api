@@ -183,6 +183,11 @@ it("Alfred partner flows (provision, book, move, cancel, events, refusals) log n
       (await alfred.post("/bookings", { ...bad, notes: 5, payment: PHI.firstName })).status
     ).toBe(400);
     expect((await alfred.post("/members", { accountId: PHI.email, profile })).status).toBe(400);
+    const tier = { tierKey: "aerwell-essential", status: "active" };
+    expect((await alfred.post(`/members/${account}/membership`, tier)).status).toBe(200);
+    expect((await alfred.post(`/members/${PHI.email}/membership`, tier)).status).toBe(400);
+    const phiBody = { ...tier, tierKey: PHI.lastName, note: PHI.chat };
+    expect((await alfred.post(`/members/${account}/membership`, phiBody)).status).toBe(400);
     expect((await org.post("/events", { type: PHI.note })).status).toBe(400);
     expect(
       (

@@ -390,3 +390,26 @@ describe("search and overview", () => {
     expect(full.body.data.notes).toEqual({ newCount: 0, items: [] });
   });
 });
+
+describe("Alfred membership record", () => {
+  it("is returned on the member profile as a record, absent when never reported", async () => {
+    const plain = await memberRow({ firstName: "Plain" });
+    expect((await admin.get(`/members/${idOf(plain)}`)).body.data.alfredMembership).toBeUndefined();
+    const validUntil = new Date("2027-09-16T00:00:00.000Z");
+    const held = await memberRow({
+      firstName: "Held",
+      alfredMembership: {
+        tierKey: "aerwell-essential",
+        status: "active",
+        validUntil,
+        updatedAt: new Date(),
+      },
+    });
+    const res = await admin.get(`/members/${idOf(held)}`);
+    expect(res.body.data.alfredMembership).toMatchObject({
+      tierKey: "aerwell-essential",
+      status: "active",
+      validUntil: validUntil.toISOString(),
+    });
+  });
+});
