@@ -12,8 +12,8 @@ import {
 } from "../../test/partnerFixture.js";
 import { partnerWorld } from "../../test/partnerWorld.js";
 import { app } from "../../test/scheduleFixture.js";
-import { AuditEvent } from "../audit/audit.js";
 import { Appointment } from "../appointment/appointment.model.js";
+import { AuditEvent } from "../audit/audit.js";
 import { LabPanel, Scan } from "../clinical/records.model.js";
 import { Service } from "../service/service.model.js";
 import { UploadRecord } from "../upload/upload.model.js";

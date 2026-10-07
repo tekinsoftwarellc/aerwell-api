@@ -11,8 +11,8 @@ import {
 } from "../alfred-partner/clinicalReport.js";
 import { enqueue, linkedAccount } from "../alfred-partner/outbox/partnerOutbox.service.js";
 import { Appointment } from "../appointment/appointment.model.js";
-import { Service } from "../service/service.model.js";
 import type { MemberDocument } from "../member/member.model.js";
+import { Service } from "../service/service.model.js";
 import { auditedWrite, byMember, clinicalMember, withoutDocument } from "./clinical.shared.js";
 
 type Row = ReportFacts & { memberId: unknown };
