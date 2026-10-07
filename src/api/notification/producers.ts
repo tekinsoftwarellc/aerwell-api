@@ -153,6 +153,25 @@ async function flagRaisedNotice(
   });
 }
 
+/** Generic by design (Q8): no thread, member or message content in the title. */
+async function memberMessageNotice(row: {
+  organizationId: string;
+  memberId: Id;
+  dedupeKey: string;
+}) {
+  await notify({
+    organizationId: row.organizationId,
+    kind: "member_message",
+    category: "members",
+    title: "New member message",
+    link: "/messages",
+    ...(await memberAudience(row.memberId, grant("MEMBER_RECORDS", "edit"))),
+    requires: [grant("MEMBER_RECORDS", "edit")],
+    memberId: row.memberId,
+    dedupeKey: row.dedupeKey,
+  });
+}
+
 async function paymentFailedNotice(processorInvoiceId: string) {
   const invoice = await Invoice.findOne({ processorInvoiceId }).lean();
   if (!invoice) return;
@@ -193,6 +212,7 @@ export const ptoDecided = safely("ptoDecided", ptoDecidedNotice);
 export const appointmentChanged = safely("appointmentChanged", appointmentChangedNotice);
 export const clinicalReview = safely("clinicalReview", clinicalReviewNotice);
 export const flagRaised = safely("flagRaised", flagRaisedNotice);
+export const memberMessage = safely("memberMessage", memberMessageNotice);
 export const paymentFailed = safely("paymentFailed", paymentFailedNotice);
 export const inviteAccepted = safely("inviteAccepted", inviteAcceptedNotice);
 

@@ -83,6 +83,9 @@ describe("partner manifest builder", () => {
     const clinical = buildManifest(rows, { ...client, capabilities: ["clinical", "services"] });
     expect(clinical.capabilities).toEqual(["clinical", "services"]);
     expect(validate(clinical), JSON.stringify(validate.errors)).toBe(true);
+    const messaging = buildManifest(rows, { ...client, capabilities: ["messaging", "services"] });
+    expect(messaging.capabilities).toEqual(["messaging", "services"]);
+    expect(validate(messaging), JSON.stringify(validate.errors)).toBe(true);
     expect(buildManifest(rows, client).capabilities).toEqual(["services"]);
   });
   it("closed days publish as empty hours", async () => {

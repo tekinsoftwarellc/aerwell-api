@@ -16,6 +16,7 @@ export const NOTIFICATION_KINDS = [
   "flag_raised",
   "payment_failed",
   "invite_accepted",
+  "member_message",
   "certification_expiring",
   // Reserved: W8 has no critical-value definition yet, so nothing produces it.
   "critical_lab_result",

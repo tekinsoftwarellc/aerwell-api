@@ -1,4 +1,5 @@
 import { startPartnerOutbox } from "./api/alfred-partner/outbox/partnerOutbox.publisher.js";
+import { startMessagePoller } from "./api/messaging/messaging.poller.js";
 import { startNotificationJobs } from "./api/notification/producers.js";
 import { attachVisitSockets } from "./api/visit/visit.socket.js";
 import { logger } from "./common/utils/logger.js";
@@ -14,6 +15,8 @@ const jobs = env.AERWELL_ORG_ID ? startNotificationJobs(env.AERWELL_ORG_ID) : un
 // W9: authenticated WebSocket for live visit transcription (same HTTP server).
 // D1: pushes staff-side booking and catalog changes to Alfred (no-op until configured).
 const outbox = startPartnerOutbox();
+// Alfred cannot push member messages: poll for unread threads and raise generic staff notices.
+const messages = startMessagePoller(env.AERWELL_ORG_ID);
 const closeVisitSockets = attachVisitSockets(server);
 server.on("error", () => {
   logger.error("HTTP server failed");
@@ -27,6 +30,7 @@ const shutdown = async (): Promise<void> => {
   shuttingDown = true;
   clearInterval(jobs);
   clearInterval(outbox);
+  clearInterval(messages);
   const timeout = setTimeout(() => process.exit(1), SHUTDOWN_MS).unref();
   // Stop taking connections, then flush live captures while Mongo is still connected.
   server.close(async () => {
