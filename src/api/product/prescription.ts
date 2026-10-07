@@ -37,7 +37,11 @@ async function refusalReason(
   line: { organizationId: string; memberId: unknown; productId: unknown; quantity: number },
   session: ClientSession
 ): Promise<string> {
-  const mine = { organizationId: line.organizationId, memberId: line.memberId, productId: line.productId };
+  const mine = {
+    organizationId: line.organizationId,
+    memberId: line.memberId,
+    productId: line.productId,
+  };
   if (!(await SupplementOrder.exists(mine).session(session)))
     return "This item needs a prescription from a clinician; none is on file for this member";
   if (await SupplementOrder.exists({ ...mine, claimedByOrderId: null }).session(session))
