@@ -13,7 +13,7 @@ import { type ProductWorld, productWorld } from "../../test/productFixture.js";
 import { app } from "../../test/scheduleFixture.js";
 import { PartnerOutbox } from "../alfred-partner/outbox/partnerOutbox.model.js";
 import { SupplementProduct } from "../supplement/supplement.js";
-import { republishProducts } from "./productCatalog.js";
+import { publishProductChange, republishProducts } from "./productCatalog.js";
 import { ProductOrder } from "./productOrder.model.js";
 
 beforeEach(() => {
@@ -145,12 +145,25 @@ describe("republishProducts", () => {
     await mk("org-test", "one");
     await mk("org-test", "two");
     await mk("org-other", "three");
+    // Each product was already published once, as on a live database.
+    for (const sku of ["one", "two"]) {
+      const row = await SupplementProduct.findOne({ sku }).lean();
+      await publishProductChange("org-test", row?._id);
+    }
+    expect(await outbox("catalog.upserted")).toHaveLength(2);
+    vi.setSystemTime(Date.now() + 5000);
     expect(await republishProducts("org-test")).toBe(2);
     const events = await outbox("catalog.upserted");
-    expect(events.map((e) => e.resource.ref).sort()).toEqual(["prod_one", "prod_two"]);
+    expect(events).toHaveLength(4);
+    const resent = events.slice(2);
+    expect(resent.map((e) => e.resource.ref).sort()).toEqual(["prod_one", "prod_two"]);
     expect(
-      events.every((e) => (e.payload as { visibility: string }).visibility === "per_member")
+      resent.every((e) => (e.payload as { visibility: string }).visibility === "per_member")
     ).toBe(true);
+    // Same version as before: Alfred applies an equal version.
+    const versions = (rows: typeof events) =>
+      rows.map((e) => (e.payload as { version: number }).version).sort();
+    expect(versions(resent)).toEqual(versions(events.slice(0, 2)));
   });
 });
 

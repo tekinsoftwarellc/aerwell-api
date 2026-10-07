@@ -56,7 +56,12 @@ export function toProductItem(p: ProductFacts) {
 }
 
 /** Tell Alfred a product changed. Best effort like `publishCatalogChange`: the pull is the safety net. */
-export async function publishProductChange(organizationId: string, productId: unknown) {
+export async function publishProductChange(
+  organizationId: string,
+  productId: unknown,
+  /** The outbox key includes this time, so a re-send of an unchanged product needs a new one. */
+  occurredAt?: Date
+) {
   if (!partnerOutboxEnabled()) return;
   try {
     const row = await SupplementProduct.findOne({ _id: productId, organizationId }).lean();
@@ -64,7 +69,7 @@ export async function publishProductChange(organizationId: string, productId: un
     const ref = productRef(row.sku);
     await enqueue({
       type: "catalog.upserted",
-      occurredAt: row.updatedAt,
+      occurredAt: occurredAt ?? row.updatedAt,
       resource: { kind: "catalog_item", ref },
       payload: toProductItem(row) as unknown as Record<string, unknown>,
     });
@@ -76,6 +81,10 @@ export async function publishProductChange(organizationId: string, productId: un
 /** Re-send every product of the org to Alfred (one-off, after a catalogue-shape change). Returns the count. */
 export async function republishProducts(organizationId: string): Promise<number> {
   const rows = await SupplementProduct.find({ organizationId }).select("_id").lean();
-  for (const row of rows) await publishProductChange(organizationId, row._id);
+  // A fresh `occurredAt`: the product rows are unchanged, so their `updatedAt` keys already exist in the
+  // outbox (and at Alfred) and a re-send under them would be dropped as a repeat. The item `version` is
+  // still `updatedAt`, which Alfred applies when equal.
+  const at = new Date();
+  for (const row of rows) await publishProductChange(organizationId, row._id, at);
   return rows.length;
 }
