@@ -21,6 +21,8 @@ const serviceSchema = new Schema(
     categoryId: { type: Schema.Types.ObjectId, ref: "ServiceCategory", required: true },
     slug: String,
     modality: { type: String, enum: ["physical", "virtual"], default: "physical" },
+    // "clinical" = a lab test or scan whose report Alfred reads (partner contract §5.11).
+    fulfilment: { type: String, enum: ["standard", "clinical"], default: "standard" },
     // "listed" with no markets = offered nowhere (fail closed).
     marketScope: { type: String, enum: ["all", "listed"], default: "listed" },
     marketIds: { type: [{ type: Schema.Types.ObjectId, ref: "Market" }], default: [] },

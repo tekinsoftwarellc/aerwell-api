@@ -13,7 +13,7 @@ const errors = {
   404: { description: "Not found in the organization or the actor's own (assigned-member) scope" },
   409: {
     description:
-      "MEMBER_ARCHIVED, ALREADY_REVIEWED, VERSION_CONFLICT, PROTOCOL_NOT_ACTIVE, UPLOAD_ALREADY_ATTACHED, BIOMARKER_KEY_EXISTS",
+      "MEMBER_ARCHIVED, ALREADY_REVIEWED, REPORT_READY, VISIT_NOT_CLINICAL, VERSION_CONFLICT, PROTOCOL_NOT_ACTIVE, UPLOAD_ALREADY_ATTACHED, BIOMARKER_KEY_EXISTS",
   },
   422: { description: "RESULT_TYPE_MISMATCH, UPLOAD_INCOMPLETE, UPLOAD_INVALID" },
   503: {
@@ -102,6 +102,11 @@ const ops: Spec[] = [
     "new -> reviewed once, optional findings; repeat is 409 ALREADY_REVIEWED (LABS_SCANS edit). Audited.",
   ],
   [
+    "put",
+    "/members/{id}/lab-panels/{panelId}/visit",
+    "Link the panel to one of the member's visits (its id is the Alfred bookingRef); a ready report cannot move, 409 REPORT_READY. Sends clinical.report_ready when this makes the report ready (LABS_SCANS edit). Audited.",
+  ],
+  [
     "get",
     "/members/{id}/lab-panels/{panelId}/document",
     "Presigned (300 s) download of the attached report (LABS_SCANS view). Audited.",
@@ -135,6 +140,11 @@ const ops: Spec[] = [
     "post",
     "/members/{id}/scans/{scanId}/review",
     "new -> reviewed once, optional findings (LABS_SCANS edit). Audited.",
+  ],
+  [
+    "put",
+    "/members/{id}/scans/{scanId}/visit",
+    "Link the scan to one of the member's visits (its id is the Alfred bookingRef); a ready report cannot move, 409 REPORT_READY (LABS_SCANS edit). Audited.",
   ],
   [
     "get",

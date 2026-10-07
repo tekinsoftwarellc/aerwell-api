@@ -5,11 +5,13 @@ import { ServiceResponse } from "../../common/models/serviceResponse.js";
 import { env } from "../../config/env.js";
 import { Appointment } from "../appointment/appointment.model.js";
 import { Member } from "../member/member.model.js";
+import { Service } from "../service/service.model.js";
+import { readyAppointmentIds } from "./clinicalReport.js";
 import { loadRefs, orderItem } from "./partner.bookings.view.js";
 import type { ordersQuery } from "./partner.schema.js";
 import { afterKeyset, decodeCursor, encodeCursor } from "./partnerCursor.js";
 
-/** The one stream of every kind Aerwell can place in Alfred's orders. D1 serves bookings. */
+/** The one stream of every kind Aerwell can place in Alfred's orders. Bookings and clinical visits so far. */
 const SERVED_KINDS = ["booking", "clinical"];
 
 /**
@@ -40,9 +42,18 @@ export async function listOrders(req: Request, res: Response): Promise<void> {
     .select("alfredAccountId")
     .lean();
   const accountOf = new Map(members.map((m) => [String(m._id), String(m.alfredAccountId)]));
+  // A visit is `clinical` or `booking` by its service's fulfilment, so the kind filter is a service filter.
+  const clinicalIds =
+    q.kind === "booking" || q.kind === "clinical"
+      ? (await Service.find({ organizationId, fulfilment: "clinical" }).select("_id").lean()).map(
+          (s) => s._id
+        )
+      : [];
   const filter = {
     organizationId,
     memberId: { $in: members.map((m) => m._id) },
+    ...(q.kind === "clinical" ? { serviceId: { $in: clinicalIds } } : {}),
+    ...(q.kind === "booking" ? { serviceId: { $nin: clinicalIds } } : {}),
     ...(q.updatedSince ? { updatedAt: { $gte: new Date(q.updatedSince) } } : {}),
   };
   const rows = await Appointment.find(
@@ -54,10 +65,14 @@ export async function listOrders(req: Request, res: Response): Promise<void> {
   const page = rows.slice(0, q.limit);
   const last = page.at(-1);
   const refs = await loadRefs(page as never);
+  const ready = await readyAppointmentIds(
+    organizationId,
+    page.map((row) => row._id)
+  );
   res.json(
     ServiceResponse.success("Orders", {
       items: page.map((row) =>
-        orderItem(row as never, accountOf.get(String(row.memberId)) ?? "", refs)
+        orderItem(row as never, accountOf.get(String(row.memberId)) ?? "", refs, ready)
       ),
       nextCursor:
         rows.length > q.limit && last ? encodeCursor(last.updatedAt, String(last._id)) : null,

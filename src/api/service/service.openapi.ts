@@ -13,6 +13,13 @@ const fields = {
       "Stable identifier; set on create (generated from title if omitted), never patched",
   },
   modality: { type: "string", enum: ["physical", "virtual"], default: "physical" },
+  fulfilment: {
+    type: "string",
+    enum: ["standard", "clinical"],
+    default: "standard",
+    description:
+      "clinical = lab test or scan whose report is read by Alfred (partner contract 5.11)",
+  },
   marketScope: {
     type: "string",
     enum: ["all", "listed"],

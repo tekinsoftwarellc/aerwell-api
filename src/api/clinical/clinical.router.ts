@@ -15,6 +15,7 @@ import {
   biomarkerQuery,
   discontinueBody,
   injectionBody,
+  linkVisitBody,
   panelCreate,
   panelParams,
   panelQuery,
@@ -61,6 +62,7 @@ import {
   logInjection,
   patchProtocol,
 } from "./protocols.service.js";
+import { linkVisit } from "./reportLink.js";
 import {
   createScan,
   getScan,
@@ -174,6 +176,14 @@ secured(
 );
 secured(
   r,
+  "put",
+  member("/lab-panels/:panelId/visit"),
+  labs("edit"),
+  { params: panelParams, body: linkVisitBody },
+  linkVisit("lab")
+);
+secured(
+  r,
   "get",
   member("/lab-panels/:panelId/document"),
   labs("view"),
@@ -223,6 +233,14 @@ secured(
   labs("edit"),
   { params: scanParams, body: reviewBody },
   reviewScan
+);
+secured(
+  r,
+  "put",
+  member("/scans/:scanId/visit"),
+  labs("edit"),
+  { params: scanParams, body: linkVisitBody },
+  linkVisit("scan")
 );
 secured(
   r,

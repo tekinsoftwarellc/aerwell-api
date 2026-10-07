@@ -86,7 +86,7 @@ export async function verifiedUpload(req: Request, purpose: string, uploadId = r
   await row.save();
   return row;
 }
-export async function signedDownload(uploadId: string, organizationId: string) {
+export async function signedDownload(uploadId: string, organizationId: string, expiresIn = 300) {
   const row = await UploadRecord.findOne({
     _id: uploadId,
     organizationId,
@@ -101,9 +101,9 @@ export async function signedDownload(uploadId: string, organizationId: string) {
         Key: row.key,
         ResponseContentDisposition: "attachment",
       }),
-      { expiresIn: 300 }
+      { expiresIn }
     ),
-    expiresIn: 300,
+    expiresIn,
   };
 }
 export async function attachDocument(req: Request) {

@@ -4,6 +4,8 @@ import { Location } from "../location/location.model.js";
 export interface ClientManifestValues {
   baseUrl?: string;
   displayName?: string;
+  /** What Aerwell declares. Tick a capability here only once its routes are deployed and live-checked. */
+  capabilities?: string[];
   terms: { url: string; version: string; summary: string };
   cancellationPolicy: { summary: string; url?: string; lateFeeCents?: number };
   support: { email: string; url?: string };
@@ -30,6 +32,7 @@ type LocationRow = {
 };
 
 const DAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
+export const DEFAULT_CAPABILITIES = ["services"];
 export const DEFAULT_BASE_URL = "https://api-aerwell.tekinsoftware.com";
 /** Alfred refuses a manifest holding this placeholder text (manifestValidator). */
 const PLACEHOLDER = /change me/i;
@@ -62,7 +65,7 @@ export function buildManifest(locations: LocationRow[], client: ClientManifestVa
     baseUrl: client.baseUrl ?? DEFAULT_BASE_URL,
     audience: "partner-aerwell",
     displayName: client.displayName ?? "Aerwell",
-    capabilities: ["services"],
+    capabilities: client.capabilities ?? DEFAULT_CAPABILITIES,
     locations: locations.map((row) => ({
       ref: String(row._id),
       name: row.name,

@@ -14,6 +14,7 @@ import {
   rescheduleBooking,
 } from "./partner.bookings.controller.js";
 import { getCatalogItem, listCatalog } from "./partner.catalog.controller.js";
+import { exportReport, getReport } from "./partner.clinical.controller.js";
 import { receiveEvent } from "./partner.events.controller.js";
 import { provisionMember } from "./partner.members.controller.js";
 import { listOrders } from "./partner.orders.controller.js";
@@ -29,6 +30,8 @@ import {
   eventBody,
   ordersQuery,
   provisionBody,
+  reportParams,
+  reportQuery,
   rescheduleBody,
 } from "./partner.schema.js";
 import {
@@ -151,6 +154,20 @@ export const createPartnerRouter = (cache: CacheService): Router => {
     ...guard.org,
     validate({ ...nothing, query: ordersQuery }),
     asyncHandler(listOrders)
+  );
+  // §5.11: the report is read live and acts for the owning member. The export mints a fresh URL
+  // each call and is the one route exempt from the idempotency replay, so no `idempotent()`.
+  router.get(
+    "/clinical/reports/:reportRef",
+    ...guard.member,
+    validate({ ...nothing, params: reportParams, query: reportQuery }),
+    asyncHandler(getReport)
+  );
+  router.post(
+    "/clinical/reports/:reportRef/export",
+    ...guard.member,
+    validate({ ...nothing, params: reportParams, query: reportQuery, body: anyBody }),
+    asyncHandler(exportReport)
   );
   // §5.13: org level. Deduped on the body's own key, so no `idempotent()`.
   router.post(

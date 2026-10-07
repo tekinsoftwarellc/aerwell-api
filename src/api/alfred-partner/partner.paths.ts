@@ -10,5 +10,6 @@ export const PARTNER_SEGMENTS = [
   "bookings",
   "orders",
   "events",
+  "clinical",
 ];
 export const PARTNER_PATH = new RegExp(`^/api/v1/alfred/(${PARTNER_SEGMENTS.join("|")})(/|$)`);

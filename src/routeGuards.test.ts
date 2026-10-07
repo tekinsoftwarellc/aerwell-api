@@ -99,6 +99,17 @@ describe("route guards", () => {
       partner.filter((r) => !r.chain.includes("requireContractVersion")).map((r) => r.operation)
     ).toEqual([]);
   });
+  it("acts for the member on both clinical report routes", () => {
+    const report = all.filter((r) => r.operation.includes("/alfred/clinical/reports/"));
+    expect(report.map((r) => r.operation).sort()).toEqual([
+      "GET /api/v1/alfred/clinical/reports/{reportRef}",
+      "POST /api/v1/alfred/clinical/reports/{reportRef}/export",
+    ]);
+    for (const r of report) {
+      expect(r.chain).toContain("requireMemberAct");
+      expect(r.chain).toContain("resolveActingMember");
+    }
+  });
   it("leaves no route on a partner path without the service-token guard", () => {
     const unguarded = all
       .filter((r) => PARTNER_PATH.test(r.operation.split(" ")[1] ?? "") && !isPartner(r.chain))
