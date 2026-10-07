@@ -1,6 +1,11 @@
 import type { NextFunction, Request, Response } from "express";
 import jwt from "jsonwebtoken";
-import { AppError, NotFoundError, UnauthorizedError } from "../../common/errors/AppError.js";
+import {
+  AppError,
+  BadRequestError,
+  NotFoundError,
+  UnauthorizedError,
+} from "../../common/errors/AppError.js";
 import { getAlfredKeyProvider } from "../../common/utils/alfredJwks.js";
 import { env } from "../../config/env.js";
 import { Member } from "../member/member.model.js";
@@ -119,6 +124,13 @@ export function requireMemberAct(req: Request, _res: Response, next: NextFunctio
     return;
   }
   next();
+}
+
+/** The path account must be the delegated one (400), checked before the member lookup can 404. */
+export function requirePathIsActingAccount(req: Request, _res: Response, next: NextFunction): void {
+  if (req.params["accountId"] !== req.partner?.accountId)
+    next(new BadRequestError("accountId must match the acting member"));
+  else next();
 }
 
 /** The acting member by Alfred account id. Unknown, archived or unlinked is a plain 404 (§5.1). */

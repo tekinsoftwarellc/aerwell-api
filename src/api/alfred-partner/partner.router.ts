@@ -17,6 +17,7 @@ import { getCatalogItem, listCatalog } from "./partner.catalog.controller.js";
 import { exportReport, getReport } from "./partner.clinical.controller.js";
 import { receiveEvent } from "./partner.events.controller.js";
 import { provisionMember } from "./partner.members.controller.js";
+import { setMembership } from "./partner.membership.controller.js";
 import { listOrders } from "./partner.orders.controller.js";
 import {
   anyBody,
@@ -28,6 +29,8 @@ import {
   catalogItemQuery,
   catalogQuery,
   eventBody,
+  membershipBody,
+  membershipParams,
   ordersQuery,
   provisionBody,
   reportParams,
@@ -38,6 +41,7 @@ import {
   alfredServiceAuth,
   requireContractVersion,
   requireMemberAct,
+  requirePathIsActingAccount,
   resolveActingMember,
 } from "./partnerAuth.js";
 import { idempotent } from "./partnerIdempotency.js";
@@ -86,6 +90,17 @@ export const createPartnerRouter = (cache: CacheService): Router => {
     idempotent(),
     validate({ ...nothing, body: provisionBody }),
     asyncHandler(provisionMember)
+  );
+  // §5.2: the member must exist (plain 404 otherwise, Alfred provisions and retries once).
+  router.post(
+    "/members/:accountId/membership",
+    ...guard.org,
+    requireMemberAct,
+    requirePathIsActingAccount,
+    resolveActingMember,
+    idempotent(),
+    validate({ ...nothing, params: membershipParams, body: membershipBody }),
+    asyncHandler(setMembership)
   );
   // §5.3, §5.4: org-level pulls. `act` is ignored unless `accountId` is asked for.
   router.get(

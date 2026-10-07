@@ -42,7 +42,7 @@ const ops: Spec[] = [
   [
     "get",
     "/members/{id}",
-    "Member profile with photoUrl, brandLabel, alfredLink (MEMBER_RECORDS view). Audited.",
+    "Member profile with photoUrl, brandLabel, alfredLink, alfredMembership (the plan Alfred last reported; a record only, never entitlement) (MEMBER_RECORDS view). Audited.",
   ],
   [
     "patch",
