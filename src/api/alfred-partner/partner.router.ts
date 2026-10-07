@@ -41,6 +41,7 @@ import {
   alfredServiceAuth,
   requireContractVersion,
   requireMemberAct,
+  requirePathIsActingAccount,
   resolveActingMember,
 } from "./partnerAuth.js";
 import { idempotent } from "./partnerIdempotency.js";
@@ -93,7 +94,10 @@ export const createPartnerRouter = (cache: CacheService): Router => {
   // §5.2: the member must exist (plain 404 otherwise, Alfred provisions and retries once).
   router.post(
     "/members/:accountId/membership",
-    ...guard.member,
+    ...guard.org,
+    requireMemberAct,
+    requirePathIsActingAccount,
+    resolveActingMember,
     idempotent(),
     validate({ ...nothing, params: membershipParams, body: membershipBody }),
     asyncHandler(setMembership)

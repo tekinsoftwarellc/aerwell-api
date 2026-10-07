@@ -188,6 +188,8 @@ it("Alfred partner flows (provision, book, move, cancel, events, refusals) log n
     expect((await alfred.post(`/members/${PHI.email}/membership`, tier)).status).toBe(400);
     const phiBody = { ...tier, tierKey: PHI.lastName, note: PHI.chat };
     expect((await alfred.post(`/members/${account}/membership`, phiBody)).status).toBe(400);
+    const phiTier = { status: "active", tierKey: PHI.lastName };
+    expect((await alfred.post(`/members/${account}/membership`, phiTier)).status).toBe(200);
     expect((await org.post("/events", { type: PHI.note })).status).toBe(400);
     expect(
       (

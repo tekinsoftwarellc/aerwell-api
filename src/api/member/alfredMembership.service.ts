@@ -1,4 +1,5 @@
 import type { Types } from "mongoose";
+import { NotFoundError } from "../../common/errors/AppError.js";
 import { Member } from "./member.model.js";
 
 export interface AlfredMembershipInput {
@@ -18,7 +19,7 @@ export async function recordAlfredMembership(
   input: AlfredMembershipInput
 ) {
   const validUntil = input.validUntil ? new Date(input.validUntil) : undefined;
-  await Member.updateOne(
+  const result = await Member.updateOne(
     { _id: memberId },
     {
       $set: {
@@ -31,6 +32,7 @@ export async function recordAlfredMembership(
       },
     }
   );
+  if (result.matchedCount === 0) throw new NotFoundError("Member not found");
   return {
     tierKey: input.tierKey,
     status: input.status,

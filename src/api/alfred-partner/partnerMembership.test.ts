@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { bookingWorld } from "../../test/appointmentFixture.js";
 import {
   ACCOUNT,
   alfredClient,
@@ -8,13 +9,9 @@ import {
 } from "../../test/partnerFixture.js";
 import { app } from "../../test/scheduleFixture.js";
 import { AllowanceLedgerEntry } from "../appointment/appointment.model.js";
+import { buildQuote, priceOf } from "../appointment/quote.service.js";
 import { MembershipPlan } from "../catalog/catalog.model.js";
-import { evaluateEntitlement } from "../entitlement/evaluate.js";
-import { loadCatalogSnapshot } from "../entitlement/snapshot.js";
 import { Member, MemberMembership } from "../member/member.model.js";
-import { toHolding } from "../member/membership.service.js";
-import { Service } from "../service/service.model.js";
-import { seedCatalog } from "../service/service.seed.js";
 
 beforeEach(installAlfredKeys);
 afterEach(removeAlfredKeys);
@@ -115,6 +112,14 @@ describe("POST /members/{accountId}/membership", () => {
     expect(res.status).toBe(400);
     expect(await stored()).toBeUndefined();
   });
+  it("is 400 (not 404) for a mismatched path even when the acting member is unknown", async () => {
+    const other = "6710bb4e2f9c1a0031d5e7a3";
+    const res = await client().post(`/members/${other}/membership`, {
+      tierKey: "bundled",
+      status: "active",
+    });
+    expect(res.status).toBe(400);
+  });
   it("is 400 for an unknown status, empty tier, unknown key or bad date; 401 without act", async () => {
     await provision();
     const bad = (b: Record<string, unknown>) =>
@@ -158,49 +163,50 @@ describe("POST /members stores the membership it carries", () => {
 });
 
 describe("the record never reaches staff entitlement (Q4: no reverse flow)", () => {
-  it("leaves MemberMembership, ledger, plans and the evaluator output unchanged", async () => {
-    await seedCatalog("org-test");
+  it("leaves MemberMembership, ledger, plans and the real quote path unchanged", async () => {
+    const w = await bookingWorld();
     const made = await provision();
     const memberId = made.body.data.partnerRef;
-    const now = new Date("2026-02-20T12:00:00.000Z");
-    const evaluate = async () => {
-      const catalog = await loadCatalogSnapshot("org-test");
-      const holdings = (await MemberMembership.find({ memberId }).lean()).map(toHolding);
-      const services = await Service.find({
-        organizationId: "org-test",
-      }).lean();
-      return services.map((s) =>
-        evaluateEntitlement(catalog, {
-          serviceId: String(s._id),
-          marketId: null,
-          deliveryMethod: "standard",
-          at: new Date("2026-03-01T17:00:00.000Z"),
-          now,
-          memberships: holdings,
-        })
+    const startAt = new Date("2027-03-01T17:00:00.000Z");
+    const now = new Date("2027-02-20T12:00:00.000Z");
+    // buildQuote is what booking and quoting use: catalog snapshot + the member's MemberMembership rows.
+    const quotes = async () =>
+      Promise.all(
+        ["comprehensive-blood-panel", "dexa-scan"].map(async (slug) =>
+          priceOf(
+            (
+              await buildQuote(
+                "org-test",
+                {
+                  memberId,
+                  serviceId: w.service(slug),
+                  locationId: String(w.vegas._id),
+                  startAt,
+                  deliveryMethod: "standard",
+                },
+                null,
+                now
+              )
+            ).quote
+          )
+        )
       );
-    };
     const counts = async () => [
       await MemberMembership.countDocuments(),
       await AllowanceLedgerEntry.countDocuments(),
       await MembershipPlan.countDocuments(),
     ];
-    const before = { quotes: await evaluate(), counts: await counts() };
-    expect(before.quotes.length).toBeGreaterThan(0);
+    const before = { quotes: await quotes(), counts: await counts() };
+    expect(before.quotes.every((q) => q.priceCents !== undefined)).toBe(true);
     for (const tierKey of ["aerwell-essential", "aerwell-continuum", "bundled"])
       expect(
-        (
-          await client().post(path, {
-            tierKey,
-            status: "active",
-            validUntil: until,
-          })
-        ).status
+        (await client().post(path, { tierKey, status: "active", validUntil: until })).status
       ).toBe(200);
     expect((await client().post(path, { tierKey: "bundled", status: "cancelled" })).status).toBe(
       200
     );
-    expect(await evaluate()).toEqual(before.quotes);
+    expect((await stored())?.status).toBe("cancelled");
+    expect(await quotes()).toEqual(before.quotes);
     expect(await counts()).toEqual(before.counts);
     expect(before.counts[0]).toBe(0);
   });
