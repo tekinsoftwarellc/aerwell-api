@@ -28,7 +28,7 @@ const byKeyset = (a: { updatedAt: Date; _id: unknown }, b: { updatedAt: Date; _i
 
 /**
  * Products as a member may see them. Given an `accountId` only the products a clinician prescribed
- * to that member are returned (§5.3); an unknown member sees none.
+ * to that member and that are still unused are returned (§5.3); an unknown member sees none.
  */
 async function productFilter(organizationId: string, accountId: string | undefined) {
   if (!accountId) return {};
@@ -36,7 +36,11 @@ async function productFilter(organizationId: string, accountId: string | undefin
     .select("_id")
     .lean();
   const ids = member
-    ? await SupplementOrder.distinct("productId", { organizationId, memberId: member._id })
+    ? await SupplementOrder.distinct("productId", {
+        organizationId,
+        memberId: member._id,
+        claimedByOrderId: null,
+      })
     : [];
   return { _id: { $in: ids } };
 }

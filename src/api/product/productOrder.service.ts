@@ -9,7 +9,8 @@ import { enqueueForMember } from "../alfred-partner/outbox/partnerOutbox.service
 import { contractConflict } from "../alfred-partner/partner.errors.js";
 import type { orderBody } from "../alfred-partner/partner.schema.js";
 import { audit } from "../audit/audit.js";
-import { SupplementOrder, SupplementProduct } from "../supplement/supplement.js";
+import { SupplementProduct } from "../supplement/supplement.js";
+import { claimPrescription, consumePrescriptions, releasePrescriptions } from "./prescription.js";
 import { skuOf } from "./productCatalog.js";
 import { orderCancelled, orderDelivered, orderShipped } from "./productOrder.events.js";
 import { ProductOrder } from "./productOrder.model.js";
@@ -36,8 +37,8 @@ const restore = (productId: unknown, quantity: number, session: ClientSession) =
     { session, timestamps: false }
   );
 
-/** Resolve `itemRef`s to sellable products and enforce the offer (Q10): 404 unknown, 409 not prescribed. */
-async function resolveLines(organizationId: string, memberId: unknown, items: OrderBody["items"]) {
+/** Resolve `itemRef`s to sellable products: 404 unknown. The prescription is claimed at reservation. */
+async function resolveLines(organizationId: string, items: OrderBody["items"]) {
   const wanted = new Map<string, number>();
   for (const item of items)
     wanted.set(item.itemRef, (wanted.get(item.itemRef) ?? 0) + item.quantity);
@@ -54,18 +55,6 @@ async function resolveLines(organizationId: string, memberId: unknown, items: Or
     if (!product) throw new NotFoundError("Unknown item");
     return { itemRef, quantity, product };
   });
-  // A SupplementOrder draft is the clinician's prescription: it is what makes the product orderable.
-  const offered = new Set(
-    (
-      await SupplementOrder.distinct("productId", {
-        organizationId,
-        memberId,
-        productId: { $in: lines.map((l) => l.product._id) },
-      })
-    ).map(String)
-  );
-  if (lines.some((l) => !offered.has(String(l.product._id))))
-    throw contractConflict("MEMBERSHIP_REQUIRED", "This item needs a clinician's prescription");
   return lines;
 }
 
@@ -77,7 +66,7 @@ export async function placeOrder(req: Request, body: OrderBody) {
     throw new BadRequestError("accountId must match the acting member");
   if (body.shippingAddress.country.toUpperCase() !== SHIPS_TO)
     throw contractConflict("SHIPPING_UNAVAILABLE", "We only ship within the United States");
-  const lines = await resolveLines(member.organizationId, member._id, body.items);
+  const lines = await resolveLines(member.organizationId, body.items);
   const priced = lines.map((l) => ({
     productId: l.product._id,
     itemRef: l.itemRef,
@@ -90,8 +79,14 @@ export async function placeOrder(req: Request, body: OrderBody) {
   const shippingCents = env.PRODUCT_SHIPPING_FLAT_CENTS;
   // The whole reservation is one transaction: a short line rolls back the lines before it. Two orders
   // for the last unit conflict on the product row; the loser retries, finds no stock and is refused.
+  const orderId = new mongoose.Types.ObjectId();
+  const prepaid = body.payment.status === "paid";
   return mongoose.connection.transaction(async (session) => {
     for (const line of priced) {
+      await claimPrescription(
+        { organizationId: member.organizationId, memberId: member._id, ...line, orderId },
+        session
+      );
       const done = await reserve(line.productId, line.quantity, session);
       if (done.modifiedCount !== 1)
         throw contractConflict("OUT_OF_STOCK", "An item is not available in that quantity");
@@ -99,6 +94,7 @@ export async function placeOrder(req: Request, body: OrderBody) {
     const [row] = await ProductOrder.create(
       [
         {
+          _id: orderId,
           organizationId: member.organizationId,
           memberId: member._id,
           accountId: body.accountId,
@@ -115,7 +111,7 @@ export async function placeOrder(req: Request, body: OrderBody) {
           acceptedTermsVersion: body.acceptedTermsVersion,
           alfredOrderRef: body.alfredOrderRef,
           // An order Alfred already charged (§5.7 style `paid`) is recorded as paid, so the sweep never releases it.
-          ...(body.payment.status === "paid"
+          ...(prepaid
             ? {
                 status: "paid",
                 paidAt: new Date(),
@@ -128,6 +124,7 @@ export async function placeOrder(req: Request, body: OrderBody) {
       { session }
     );
     if (!row) throw new Error("Order not created");
+    if (prepaid) await consumePrescriptions(orderId, session);
     await audit(req, "placed", "ProductOrder", String(row._id), String(member._id), session);
     return row;
   });
@@ -177,8 +174,10 @@ export async function cancelOrder(
       stockReleased: true,
     });
     await row.save({ session });
-    if (giveBack)
+    if (giveBack) {
       for (const item of row.items) await restore(item.productId, item.quantity, session);
+      await releasePrescriptions(row._id, session);
+    }
     if (how.by !== "member")
       await enqueueForMember(
         row.memberId,
@@ -347,6 +346,7 @@ export async function recordProductPaid(organizationId: string, event: PaymentEv
       ...(row.status === "cancelled" ? { cancelRefundCents: paidCents } : {}),
     });
     await row.save({ session });
+    if (row.status === "paid") await consumePrescriptions(row._id, session);
     if (row.status === "cancelled")
       await enqueueForMember(
         row.memberId,
@@ -387,7 +387,9 @@ export async function recordProductRefund(organizationId: string, event: Payment
       ...(unshipped && whole ? { stockReleased: true } : {}),
     });
     await row.save({ session });
-    if (unshipped && whole)
+    if (unshipped && whole) {
       for (const item of row.items) await restore(item.productId, item.quantity, session);
+      await releasePrescriptions(row._id, session);
+    }
   });
 }

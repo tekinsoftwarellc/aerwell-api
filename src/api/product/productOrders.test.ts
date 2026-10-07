@@ -141,6 +141,7 @@ describe("POST /orders", () => {
       alfredAccountId: "6710bb4e2f9c1a0031d5e7b7",
       status: "active",
     });
+    await w.prescribe(product._id); // a second prescription, so stock (not the prescription) is the contender
     await w.prescribe(product._id, other._id);
     const itemRef = ref(product.sku);
     const [a, b] = await Promise.all([

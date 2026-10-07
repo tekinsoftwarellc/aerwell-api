@@ -36,7 +36,7 @@ export async function productWorld(existing?: { _id: Types.ObjectId }) {
     });
   }
   /** The clinician's prescription: a SupplementOrder draft is what makes the product orderable. */
-  const prescribe = (productId: unknown, memberId: unknown = member._id) =>
+  const prescribe = (productId: unknown, memberId: unknown = member._id, qty = 12) =>
     SupplementOrder.create({
       organizationId: ORG,
       memberId,
@@ -45,7 +45,7 @@ export async function productWorld(existing?: { _id: Types.ObjectId }) {
       product: { name: "Demo", priceCents: 3400 },
       directions: "Daily",
       durationDays: 30,
-      qty: 1,
+      qty,
       fulfillment: "ship",
       pricing: { subtotalCents: 3400, totalCents: 3400 },
     });

@@ -62,6 +62,10 @@ const orderSchema = new Schema(
       totalCents: { type: Number, required: true },
     },
     status: { type: String, enum: ORDER_STATUSES, default: "draft" },
+    // One prescription covers one purchase of up to `qty`. Placing the order claims it, a release
+    // before shipping clears it, payment stamps `consumedAt`.
+    claimedByOrderId: { type: Schema.Types.ObjectId, default: null },
+    consumedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );

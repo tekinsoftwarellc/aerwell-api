@@ -49,7 +49,7 @@ export const productPaths: Record<string, Record<string, unknown>> = {
     },
     post: {
       summary:
-        "Create a product {sku, name, priceCents, stock?, forSale?, ...} (SERVICES edit). A sellable product is published to Alfred as catalog kind products. Orderable only by a member a clinician prescribed it to.",
+        "Create a product {sku, name, priceCents, stock?, forSale?, ...} (SERVICES edit). A sellable product is published to Alfred as catalog kind products. Orderable only against an unused prescription of that member covering the quantity (one purchase per prescription; released on cancel or full refund before shipping, consumed on payment).",
       tags: ["Products"],
       security: STAFF,
       requestBody: body(
