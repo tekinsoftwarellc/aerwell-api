@@ -68,8 +68,19 @@ export const productPaths: Record<string, Record<string, unknown>> = {
       tags: ["Products"],
       security: STAFF,
       parameters: [idParam],
-      requestBody: body({ ...productFields, active: { type: "boolean" } }),
-      responses: responses("SERVICES edit", { 404: { description: "Product not found" } }),
+      requestBody: body({
+        ...productFields,
+        active: { type: "boolean" },
+        expectedStock: {
+          type: "integer",
+          minimum: 0,
+          description: "With stock: apply only if stock still equals this, else 409 STOCK_CHANGED",
+        },
+      }),
+      responses: responses("SERVICES edit", {
+        404: { description: "Product not found" },
+        409: { description: "STOCK_CHANGED" },
+      }),
     },
   },
   "/api/v1/product-orders": {

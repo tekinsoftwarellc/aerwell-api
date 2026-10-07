@@ -108,6 +108,10 @@ describe("POST /orders", () => {
     });
     expect([res.status, res.body.data.code]).toEqual([409, "SHIPPING_UNAVAILABLE"]);
     expect(await stockOf(product._id)).toBe(10);
+    const named = await w.place([{ itemRef: ref(product.sku), quantity: 1 }], {
+      shippingAddress: { ...ADDRESS, country: "Canada" },
+    });
+    expect([named.status, named.body.data.code]).toEqual([409, "SHIPPING_UNAVAILABLE"]);
     const lower = await w.place([{ itemRef: ref(product.sku), quantity: 1 }], {
       shippingAddress: { ...ADDRESS, country: "us" },
     });
@@ -273,6 +277,46 @@ describe("inbound order.paid and order.refunded", () => {
     const row = await ProductOrder.findById(orderRef).lean();
     expect(row).toMatchObject({ status: "refunded", refundedCents: 3400 });
     expect(row?.refundedAt?.toISOString()).toBe(refundedAt);
+  });
+
+  it("a partial refund changes no status and the order can still ship; a replayed refund key adds nothing", async () => {
+    const w = await productWorld();
+    const { orderRef } = await placed(w, 1);
+    await w.event("order.paid", orderRef, { amountCents: 3400 });
+    await w.event("order.refunded", orderRef, { amountCents: 500 }, "p1");
+    await w.event("order.refunded", orderRef, { amountCents: 500 }, "p1");
+    expect(await ProductOrder.findById(orderRef).lean()).toMatchObject({
+      status: "paid",
+      refundedCents: 500,
+    });
+  });
+
+  it("a full refund of a paid, unshipped order gives its stock back once", async () => {
+    const w = await productWorld();
+    const { product, orderRef } = await placed(w, 3);
+    await w.event("order.paid", orderRef, { amountCents: 3400 * 3 });
+    expect(await stockOf(product._id)).toBe(7);
+    await w.event("order.refunded", orderRef, { amountCents: 3400 * 3 }, "f1");
+    expect(await stockOf(product._id)).toBe(10);
+    await w.event("order.refunded", orderRef, { amountCents: 1 }, "f2");
+    expect(await stockOf(product._id)).toBe(10);
+    expect((await ProductOrder.findById(orderRef).lean())?.status).toBe("refunded");
+  });
+
+  it("an order Alfred already charged (payment paid) is recorded paid and is never auto-released", async () => {
+    const w = await productWorld();
+    const product = await w.product();
+    await w.prescribe(product._id);
+    const res = await w.place([{ itemRef: ref(product.sku), quantity: 1 }], {
+      payment: { status: "paid", paymentIntentId: "pi_pre", amountCents: 3400, currency: "usd" },
+    });
+    expect(res.status).toBe(201);
+    expect(await ProductOrder.findById(res.body.data.orderRef).lean()).toMatchObject({
+      status: "paid",
+      paidCents: 3400,
+      paymentIntentId: "pi_pre",
+    });
+    expect(await releaseUnpaidOrders(new Date(Date.now() + UNPAID_RELEASE_MS * 5))).toBe(0);
   });
 
   it("an order.refunded after a cancel keeps the order cancelled", async () => {

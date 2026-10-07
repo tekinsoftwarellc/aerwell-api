@@ -114,6 +114,15 @@ export async function placeOrder(req: Request, body: OrderBody) {
           },
           acceptedTermsVersion: body.acceptedTermsVersion,
           alfredOrderRef: body.alfredOrderRef,
+          // An order Alfred already charged (§5.7 style `paid`) is recorded as paid, so the sweep never releases it.
+          ...(body.payment.status === "paid"
+            ? {
+                status: "paid",
+                paidAt: new Date(),
+                paidCents: body.payment.amountCents,
+                paymentIntentId: body.payment.paymentIntentId,
+              }
+            : {}),
         },
       ],
       { session }
@@ -158,6 +167,7 @@ export async function cancelOrder(
     if (how.unpaidBefore && (row.status !== "placed" || row.createdAt >= how.unpaidBefore))
       return { row, changed: false };
     const at = new Date();
+    const giveBack = !row.stockReleased;
     row.set({
       status: "cancelled",
       cancelledAt: at,
@@ -167,12 +177,12 @@ export async function cancelOrder(
       stockReleased: true,
     });
     await row.save({ session });
-    for (const item of row.items) await restore(item.productId, item.quantity, session);
+    if (giveBack)
+      for (const item of row.items) await restore(item.productId, item.quantity, session);
     if (how.by !== "member")
       await enqueueForMember(
         row.memberId,
-        async (accountId) =>
-          orderCancelled(accountId, row, how.by as "staff" | "system", at, row.cancelRefundCents),
+        async (accountId) => orderCancelled(accountId, row, how.by, at, row.cancelRefundCents),
         session
       );
     if (how.req)
@@ -300,6 +310,7 @@ export async function staffCancel(req: Request, id: string) {
 // ── inbound payment events ────────────────────────────────────────────────────
 
 type PaymentEvent = {
+  idempotencyKey: string;
   accountId?: string | undefined;
   occurredAt: string;
   resource: { ref: string };
@@ -343,7 +354,7 @@ export async function recordProductPaid(organizationId: string, event: PaymentEv
           orderCancelled(
             accountId,
             row,
-            row.cancelledBy === "staff" ? "staff" : "system",
+            row.cancelledBy ?? "system",
             // After the first cancel event: the outbox key is (type, ref, time), so it must differ.
             new Date(Math.max(Date.now(), (row.cancelledAt?.getTime() ?? 0) + 1)),
             paidCents
@@ -354,20 +365,29 @@ export async function recordProductPaid(organizationId: string, event: PaymentEv
 }
 
 /**
- * `order.refunded`: Alfred sends one event per refund with that refund's amount, so amounts add up
- * (a replay of the same event is stopped by its idempotency key). A paid, shipped or delivered order
- * becomes `refunded`; a cancelled one stays cancelled.
+ * `order.refunded`: Alfred sends one event per refund with that refund's amount, so amounts add up;
+ * the event's idempotency key is kept on the order so a replayed handler adds nothing. Only a refund of
+ * everything paid moves a paid, shipped or delivered order to `refunded`, and a paid order that has not
+ * shipped gives its stock back then. A cancelled order stays cancelled; a partial refund changes no status.
  */
 export async function recordProductRefund(organizationId: string, event: PaymentEvent) {
   await mongoose.connection.transaction(async (session) => {
     const row = await eventOrder(organizationId, event, session);
-    if (!row) return;
+    if (!row || row.refundEventKeys.includes(event.idempotencyKey)) return;
     const amount = event.payload["amountCents"];
+    const refundedCents = (row.refundedCents ?? 0) + (typeof amount === "number" ? amount : 0);
+    const whole = row.paidCents > 0 && refundedCents >= row.paidCents;
+    const live = ["paid", "shipped", "delivered"].includes(row.status);
+    const unshipped = row.status === "paid" && !row.stockReleased;
     row.set({
       refundedAt: row.refundedAt ?? dateOf(event.payload["refundedAt"], event.occurredAt),
-      ...(typeof amount === "number" ? { refundedCents: (row.refundedCents ?? 0) + amount } : {}),
-      ...(["paid", "shipped", "delivered"].includes(row.status) ? { status: "refunded" } : {}),
+      refundedCents,
+      refundEventKeys: [...row.refundEventKeys, event.idempotencyKey],
+      ...(live && whole ? { status: "refunded" } : {}),
+      ...(unshipped && whole ? { stockReleased: true } : {}),
     });
     await row.save({ session });
+    if (unshipped && whole)
+      for (const item of row.items) await restore(item.productId, item.quantity, session);
   });
 }

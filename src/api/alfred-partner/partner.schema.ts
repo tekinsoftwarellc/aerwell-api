@@ -124,15 +124,20 @@ export const bookingBody = z
  * Contract §5.10. Unknown top-level keys are ignored, like the booking body. The address never leaves
  * this body: it is stored on the order and read back by nothing but staff fulfilment.
  */
+const orderAddress = address.extend({
+  // Alfred sends the profile's country as typed: anything but the US is answered 409, not 400.
+  country: z.string().trim().min(1).max(60),
+});
 export const orderBody = z.object({
   accountId,
   items: z
     .array(z.object({ itemRef: ref, quantity: z.number().int().min(1).max(99) }))
     .min(1)
     .max(20),
-  shippingAddress: address,
+  shippingAddress: orderAddress,
   payment: z.object({
     status: z.enum(["none", "paid"]),
+    paymentIntentId: z.string().min(1).max(200).optional(),
     amountCents: money,
     currency: z.string().regex(/^[a-z]{3}$/),
   }),

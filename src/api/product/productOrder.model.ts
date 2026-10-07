@@ -67,6 +67,8 @@ const schema = new Schema(
     paidCents: { type: Number, default: 0 },
     refundedAt: Date,
     refundedCents: { type: Number, default: 0 },
+    /** Alfred's idempotency keys of the refunds already added up, so a replayed handler adds nothing. */
+    refundEventKeys: { type: [String], default: [] },
     /** What Alfred owes back for a cancelled order: all of it if it was paid, nothing if it was not. */
     cancelRefundCents: { type: Number, default: 0 },
     tracking: {

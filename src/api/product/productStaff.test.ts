@@ -181,6 +181,14 @@ describe("catalog pull carries products", () => {
     expect(personal.body.data.items.map((i: { partnerRef: string }) => i.partnerRef)).toEqual([
       "prod_mine",
     ]);
+    // The prescription never touches the product row, so a member pull ignores the watermark.
+    const future = encodeURIComponent(new Date(Date.now() + 86_400_000).toISOString());
+    const since = await alfredClient(app).get(
+      `/catalog?kind=products&accountId=${ACCOUNT}&updatedSince=${future}`
+    );
+    expect(since.body.data.items.map((i: { partnerRef: string }) => i.partnerRef)).toEqual([
+      "prod_mine",
+    ]);
     // One keyset across both collections: paging by 1 sees every item once, in order.
     const seen: string[] = [];
     let cursor: string | null = null;

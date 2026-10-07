@@ -42,6 +42,7 @@ export const productPatch = z
     forSale: fields.forSale,
     active: fields.active,
     imageUploadId: fields.imageUploadId,
+    expectedStock: fields.stock,
   })
   .partial()
   .strict()

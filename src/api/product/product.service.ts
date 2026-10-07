@@ -70,17 +70,30 @@ export async function createProduct(req: Request) {
 
 /** `stock` is an absolute count set by staff (a stocktake); orders adjust it atomically by delta. */
 export async function patchProduct(req: Request) {
-  const { imageUploadId, ...body } = req.body as z.output<typeof productPatch>;
+  const { imageUploadId, expectedStock, ...body } = req.body as z.output<typeof productPatch>;
   const organizationId = orgOf(req);
   const imageKey = imageUploadId
     ? await attachServiceImage(organizationId, String(actor(req)._id), imageUploadId)
     : undefined;
+  const where = { _id: req.params["id"], organizationId };
+  // A stocktake sent with the count the editor saw only applies if no order moved it since.
   const row = await SupplementProduct.findOneAndUpdate(
-    { _id: req.params["id"], organizationId },
+    {
+      ...where,
+      ...(body.stock !== undefined && expectedStock !== undefined ? { stock: expectedStock } : {}),
+    },
     { $set: { ...body, ...(imageKey ? { imageKey } : {}) } },
     { new: true }
   );
-  if (!row) throw new NotFoundError("Product not found");
+  if (!row) {
+    if (await SupplementProduct.exists(where))
+      throw new ConflictError(
+        "Stock changed since you opened this product",
+        undefined,
+        "STOCK_CHANGED"
+      );
+    throw new NotFoundError("Product not found");
+  }
   await audit(req, "updated", "SupplementProduct", String(row._id));
   await publishProductChange(organizationId, row._id);
   return productView(row);

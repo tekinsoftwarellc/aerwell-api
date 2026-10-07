@@ -42,7 +42,7 @@ export const orderDelivered = (accountId: string, row: Row, at: Date): OutboxEve
 export const orderCancelled = (
   accountId: string,
   row: Row,
-  by: "staff" | "system",
+  by: "member" | "staff" | "system",
   at: Date,
   refundCents: number
 ): OutboxEvent => ({
