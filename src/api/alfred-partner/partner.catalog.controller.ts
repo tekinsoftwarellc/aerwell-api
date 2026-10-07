@@ -76,7 +76,11 @@ export async function listCatalog(req: Request, res: Response): Promise<void> {
             organizationId,
             // A prescription does not touch the product row, so a member's pull cannot use the watermark:
             // it returns every product prescribed to that member (Alfred ignores versions it already holds).
-            ...(query.accountId ? {} : query.updatedSince ? since : { active: true, forSale: true }),
+            ...(query.accountId
+              ? {}
+              : query.updatedSince
+                ? since
+                : { active: true, forSale: true }),
             ...(await productFilter(organizationId, query.accountId)),
           })
         )
