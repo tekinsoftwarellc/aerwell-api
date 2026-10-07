@@ -1,4 +1,4 @@
-import { type ClientSession, type Types } from "mongoose";
+import type { ClientSession, Types } from "mongoose";
 import { contractConflict } from "../alfred-partner/partner.errors.js";
 import { SupplementOrder } from "../supplement/supplement.js";
 
