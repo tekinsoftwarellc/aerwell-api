@@ -20,6 +20,7 @@ import { dashboardRouter } from "./api/dashboard/dashboard.router.js";
 import { healthRouter } from "./api/health/health.router.js";
 import { createInviteRouter } from "./api/invite/invite.router.js";
 import { memberRouter } from "./api/member/member.router.js";
+import { messagingRouter } from "./api/messaging/messaging.router.js";
 import { notificationRouter } from "./api/notification/notification.router.js";
 import { schedulingRouter } from "./api/schedule/schedule.router.js";
 import { serviceRouter } from "./api/service/service.router.js";
@@ -86,6 +87,8 @@ export const createServer = (cache: CacheService = createCacheService()): Expres
   // D1 partner contract: guarded per route, so the staff assistant router below is untouched.
   if (partnerContractEnabled()) app.use("/api/v1/alfred", createPartnerRouter(cache));
   app.use("/api/v1", partnerOutboxRouter);
+  // AC-3b staff messaging inbox over Alfred (pass-through).
+  app.use("/api/v1", messagingRouter);
   app.use("/api/v1", createAlfredRouter(cache));
   // Public catalog image links (Alfred stores them); independent of the partner contract flag.
   app.use("/api/v1", publicServiceImageRouter);
