@@ -353,15 +353,19 @@ export async function recordProductPaid(organizationId: string, event: PaymentEv
   });
 }
 
-/** `order.refunded`: records the refund; a paid, shipped or delivered order becomes `refunded`. */
+/**
+ * `order.refunded`: Alfred sends one event per refund with that refund's amount, so amounts add up
+ * (a replay of the same event is stopped by its idempotency key). A paid, shipped or delivered order
+ * becomes `refunded`; a cancelled one stays cancelled.
+ */
 export async function recordProductRefund(organizationId: string, event: PaymentEvent) {
   await mongoose.connection.transaction(async (session) => {
     const row = await eventOrder(organizationId, event, session);
-    if (!row || row.refundedAt) return;
+    if (!row) return;
     const amount = event.payload["amountCents"];
     row.set({
-      refundedAt: dateOf(event.payload["refundedAt"], event.occurredAt),
-      ...(typeof amount === "number" ? { refundedCents: amount } : {}),
+      refundedAt: row.refundedAt ?? dateOf(event.payload["refundedAt"], event.occurredAt),
+      ...(typeof amount === "number" ? { refundedCents: (row.refundedCents ?? 0) + amount } : {}),
       ...(["paid", "shipped", "delivered"].includes(row.status) ? { status: "refunded" } : {}),
     });
     await row.save({ session });

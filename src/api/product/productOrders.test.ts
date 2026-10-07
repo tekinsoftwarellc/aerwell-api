@@ -257,16 +257,19 @@ describe("inbound order.paid and order.refunded", () => {
     expect((await ProductOrder.findById(orderRef).lean())?.status).toBe("placed");
   });
 
-  it("order.refunded records the refund once and moves a paid order to refunded", async () => {
+  it("order.refunded adds each refund up, once per event, and moves a paid order to refunded", async () => {
     const w = await productWorld();
     const { orderRef } = await placed(w, 1);
     await w.event("order.paid", orderRef, { amountCents: 3400 });
     const refundedAt = "2027-03-02T10:00:00.000Z";
-    await w.event("order.refunded", orderRef, { amountCents: 3400, refundedAt });
-    await w.event("order.refunded", orderRef, {
-      amountCents: 5,
-      refundedAt: "2030-01-01T00:00:00.000Z",
-    });
+    await w.event("order.refunded", orderRef, { amountCents: 1000, refundedAt }, "r1");
+    await w.event("order.refunded", orderRef, { amountCents: 1000, refundedAt }, "r1");
+    await w.event(
+      "order.refunded",
+      orderRef,
+      { amountCents: 2400, refundedAt: "2027-03-03T10:00:00.000Z" },
+      "r2"
+    );
     const row = await ProductOrder.findById(orderRef).lean();
     expect(row).toMatchObject({ status: "refunded", refundedCents: 3400 });
     expect(row?.refundedAt?.toISOString()).toBe(refundedAt);
