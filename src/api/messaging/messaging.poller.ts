@@ -1,3 +1,4 @@
+import { alfredPartnerMessagingClient as alfred } from "../../common/services/alfredPartnerMessagingClient.js";
 import { logger } from "../../common/utils/logger.js";
 import { env } from "../../config/env.js";
 import { Member } from "../member/member.model.js";
@@ -8,14 +9,15 @@ const POLL_MS = 60_000;
 
 /**
  * Alfred cannot push a member message to the partner, so unread threads are polled and each
- * new one raises one generic staff notice. The dedupe key is thread + last-message time: a
- * rerun, a restart or a second poll of the same message writes nothing. No content is read.
+ * unread member message raises one generic staff notice. The dedupe key is the message id: a
+ * rerun, a restart or a second poll of the same message writes nothing. Bodies are read in memory only: never kept, logged or put in a notice.
  */
 export async function pollMemberMessages(organizationId: string): Promise<number> {
   const unread = (await fetchAllThreads()).filter((t) => t.unreadForStaff > 0 && t.lastMessageAt);
   if (!unread.length) return 0;
   const members = await Member.find({
     organizationId,
+    archivedAt: null,
     alfredAccountId: { $in: unread.map((t) => t.accountId) },
   })
     .select("alfredAccountId")
@@ -25,12 +27,13 @@ export async function pollMemberMessages(organizationId: string): Promise<number
   for (const thread of unread) {
     const memberId = byAccount.get(thread.accountId);
     if (!memberId) continue;
-    await memberMessage({
-      organizationId,
-      memberId,
-      dedupeKey: `msg:${thread.id}:${thread.lastMessageAt}`,
-    });
-    raised += 1;
+    // One notice per unread member message (keyed on its id); staff and system messages raise none.
+    const { items } = await alfred.listMessages(thread.id, { limit: thread.unreadForStaff });
+    for (const message of items) {
+      if (message.sender !== "member" || message.readAt) continue;
+      await memberMessage({ organizationId, memberId, dedupeKey: `msg:${message.id}` });
+      raised += 1;
+    }
   }
   return raised;
 }

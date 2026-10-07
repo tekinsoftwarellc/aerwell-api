@@ -17,6 +17,7 @@ vi.mock("../../common/utils/logger.js", async (importOriginal) => {
 });
 
 const BODY = "BODY-SENTINEL-8841";
+const REF = "7b1d4c0e-5a52-4c63-9d0e-2f6a1b9c8d33";
 const thread = (id: string, accountId: string, unread = 1, at = "2026-10-07T10:00:00.000Z") => ({
   id,
   accountId,
@@ -78,17 +79,23 @@ async function world() {
   return { mine, other, doc, boss, viewer, api: as(doc.accessToken) };
 }
 const threads = [thread("t-mine", "acct-mine", 2), thread("t-other", "acct-other", 1)];
+/** Alfred answers 400 to any key but page and limit on the message list (strict schema). */
+let messageRows: (threadId: string) => unknown[] = () => [
+  { id: "m1", body: BODY, sender: "member", readAt: null },
+];
 const listRoute = (c: Call) => {
-  if (c.url.includes("/threads?")) {
-    const account = new URL(c.url).searchParams.get("accountId");
+  const url = new URL(c.url);
+  if (url.pathname.endsWith("/threads")) {
+    const account = url.searchParams.get("accountId");
     return {
       status: 200,
       data: page(account ? threads.filter((t) => t.accountId === account) : threads),
     };
   }
-  if (c.url.endsWith("/messages") && c.method === "GET")
-    return { status: 200, data: page([{ id: "m1", body: BODY, sender: "member" }]) };
-  if (c.url.endsWith("/messages")) return { status: 201, data: { id: "m2", sender: "staff" } };
+  if (url.pathname.endsWith("/messages") && c.method === "GET")
+    return { status: 200, data: page(messageRows(url.pathname.split("/")[6] ?? "")) };
+  if (url.pathname.endsWith("/messages"))
+    return { status: 201, data: { id: "m2", sender: "staff" } };
   return { status: 200, data: { threadId: "t-mine", unreadForStaff: 0 } };
 };
 
@@ -118,6 +125,7 @@ describe("staff messaging routes", () => {
     const send = await w.api.post("/api/v1/messaging/threads/t-other/messages", {
       memberId: idOf(w.other),
       body: BODY,
+      messageRef: REF,
     });
     expect(send.status).toBe(404);
     const read = await w.api.post("/api/v1/messaging/threads/t-other/read", {
@@ -142,6 +150,7 @@ describe("staff messaging routes", () => {
     const res = await w.api.post("/api/v1/messaging/threads/t-mine/messages", {
       memberId: idOf(w.mine),
       body: BODY,
+      messageRef: REF,
     });
     expect(res.status).toBe(201);
     const post = calls.find((c) => c.method === "POST");
@@ -150,6 +159,7 @@ describe("staff messaging routes", () => {
     expect(post?.body).toEqual({
       actor: { staffRef: String(w.doc.staff._id), name: "Test Actor", role: expect.any(String) },
       body: BODY,
+      messageRef: REF,
     });
     const events = await AuditEvent.find({ targetType: "Message" }).lean();
     expect(events).toHaveLength(1);
@@ -163,7 +173,7 @@ describe("staff messaging routes", () => {
     fakeAlfred(listRoute);
     const v = as(w.viewer.accessToken);
     expect((await v.get("/api/v1/messaging/threads")).status).toBe(200);
-    const body = { memberId: idOf(w.mine), body: "x" };
+    const body = { memberId: idOf(w.mine), body: "x", messageRef: REF };
     expect((await v.post("/api/v1/messaging/threads/t-mine/messages", body)).status).toBe(403);
     expect(
       (await v.post("/api/v1/messaging/threads/t-mine/read", { memberId: idOf(w.mine) })).status
@@ -193,9 +203,47 @@ describe("staff messaging routes", () => {
     const res = await w.api.post("/api/v1/messaging/threads/t-mine/messages", {
       memberId: idOf(w.mine),
       body: "hi",
+      messageRef: REF,
     });
     expect(res.status).toBe(409);
     expect(res.body.code).toBe("STAFF_MISMATCH");
+  });
+
+  it("reads messages with only page and limit on the Alfred query and returns them", async () => {
+    const w = await world();
+    const calls = fakeAlfred(listRoute);
+    const res = await w.api.get(
+      `/api/v1/messaging/threads/t-mine/messages?memberId=${idOf(w.mine)}`
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.data.items[0].id).toBe("m1");
+    const read = calls.find((c) => c.url.includes("/messages"));
+    expect([...new URL(read?.url ?? "").searchParams.keys()].sort()).toEqual(["limit", "page"]);
+  });
+
+  it("refuses to send or mark read for an archived member (409 MEMBER_ARCHIVED)", async () => {
+    const w = await world();
+    await w.mine.updateOne({ archivedAt: new Date() });
+    const calls = fakeAlfred(listRoute);
+    const send = await w.api.post("/api/v1/messaging/threads/t-mine/messages", {
+      memberId: idOf(w.mine),
+      body: "hi",
+      messageRef: REF,
+    });
+    expect(send.status).toBe(409);
+    expect(send.body.code).toBe("MEMBER_ARCHIVED");
+    expect(calls.filter((c) => c.method === "POST")).toEqual([]);
+  });
+
+  it("sends the draft's messageRef so a retried send dedupes at Alfred", async () => {
+    const w = await world();
+    const calls = fakeAlfred(listRoute);
+    await w.api.post("/api/v1/messaging/threads/t-mine/messages", {
+      memberId: idOf(w.mine),
+      body: "hi",
+      messageRef: REF,
+    });
+    expect(calls.find((c) => c.method === "POST")?.body?.["messageRef"]).toBe(REF);
   });
 
   it("retries a GET once and never a POST", async () => {
@@ -207,6 +255,7 @@ describe("staff messaging routes", () => {
     const res = await w.api.post("/api/v1/messaging/threads/t-mine/messages", {
       memberId: idOf(w.mine),
       body: "hi",
+      messageRef: REF,
     });
     expect(res.status).toBe(503);
     expect(posts.filter((c) => c.method === "POST")).toHaveLength(1);
@@ -218,38 +267,61 @@ describe("staff messaging routes", () => {
     const url = "/api/v1/messaging/threads/t-mine/messages";
     const memberId = idOf(w.mine);
     for (const bad of [
-      { memberId, body: "   " },
-      { memberId, body: "x".repeat(2001) },
-      { memberId, body: "hi", attachments: [] },
+      { memberId, body: "   ", messageRef: REF },
+      { memberId, body: "x".repeat(2001), messageRef: REF },
+      { memberId, body: "hi", messageRef: REF, attachments: [] },
+      { memberId, body: "hi" },
+      { memberId, body: "hi", messageRef: "not-a-uuid" },
     ])
       expect((await w.api.post(url, bad)).status).toBe(400);
   });
 });
 
 describe("inbound message poller", () => {
-  it("raises one generic notice per new message, none twice, with no content", async () => {
-    const w = await world();
-    fakeAlfred(listRoute);
-    expect(await pollMemberMessages("org-test")).toBe(2);
-    await pollMemberMessages("org-test");
-    const rows = await Notification.find({ kind: "member_message" }).lean();
-    // t-mine: the assigned clinician (own scope). t-other has no assigned clinician: the all-scope fallback holders.
-    expect(rows.every((r) => r.title === "New member message")).toBe(true);
-    const mine = rows.filter((r) => String(r.recipientStaffId) === String(w.doc.staff._id));
-    expect(mine).toHaveLength(1);
-    const serialized = JSON.stringify(rows);
-    expect(serialized).not.toContain(BODY);
-    expect(serialized).not.toContain(w.mine.firstName);
-    const count = rows.length;
-    // A newer message on the same thread raises a fresh notice.
-    threads[0] = thread("t-mine", "acct-mine", 3, "2026-10-07T10:05:00.000Z");
-    await pollMemberMessages("org-test");
-    expect(await Notification.countDocuments({ kind: "member_message" })).toBeGreaterThan(count);
-    threads[0] = thread("t-mine", "acct-mine", 2);
+  const rows = (items: unknown[]) => {
+    messageRows = () => items;
+  };
+  afterEach(() => {
+    messageRows = () => [{ id: "m1", body: BODY, sender: "member", readAt: null }];
   });
 
-  it("raises nothing for a read thread", async () => {
+  it("raises one generic notice per unread member message, none twice, with no content", async () => {
+    const w = await world();
+    rows([
+      { id: "a1", body: BODY, sender: "member", readAt: null },
+      { id: "a2", body: BODY, sender: "member", readAt: null },
+    ]);
+    fakeAlfred(listRoute);
+    await pollMemberMessages("org-test");
+    await pollMemberMessages("org-test");
+    const all = await Notification.find({ kind: "member_message" }).lean();
+    expect(all.every((r) => r.title === "New member message")).toBe(true);
+    const mine = all.filter((r) => String(r.recipientStaffId) === String(w.doc.staff._id));
+    expect(mine).toHaveLength(2);
+    const serialized = JSON.stringify(all);
+    expect(serialized).not.toContain(BODY);
+    expect(serialized).not.toContain(w.mine.firstName);
+    expect(sink.lines.join("\n")).not.toContain(BODY);
+  });
+
+  it("a staff or system message on an unread thread raises nothing", async () => {
     await world();
+    rows([
+      { id: "s1", body: BODY, sender: "staff", readAt: null },
+      { id: "s2", body: BODY, sender: "alfred", readAt: null },
+      { id: "s3", body: BODY, sender: "member", readAt: "2026-10-07T09:00:00Z" },
+    ]);
+    fakeAlfred(listRoute);
+    expect(await pollMemberMessages("org-test")).toBe(0);
+    expect(await Notification.countDocuments({ kind: "member_message" })).toBe(0);
+  });
+
+  it("skips archived members and read threads", async () => {
+    const w = await world();
+    await w.mine.updateOne({ archivedAt: new Date() });
+    await w.other.updateOne({ archivedAt: new Date() });
+    fakeAlfred(listRoute);
+    expect(await pollMemberMessages("org-test")).toBe(0);
     fakeAlfred(() => ({ status: 200, data: page([thread("t1", "acct-mine", 0)]) }));
     expect(await pollMemberMessages("org-test")).toBe(0);
   });

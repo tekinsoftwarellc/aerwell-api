@@ -21,6 +21,11 @@ export const messagesQuery = z
   .strict();
 /** 2000 is Alfred's own message ceiling. */
 export const sendBody = z
-  .object({ memberId: objectId, body: z.string().trim().min(1).max(2000) })
+  .object({
+    memberId: objectId,
+    body: z.string().trim().min(1).max(2000),
+    // One per draft: Alfred dedupes a retried send on it.
+    messageRef: z.string().uuid(),
+  })
   .strict();
 export const readBody = z.object({ memberId: objectId }).strict();

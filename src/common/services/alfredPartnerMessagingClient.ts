@@ -70,7 +70,9 @@ export interface AlfredPage<T> {
 }
 
 const unavailable = (reason: string, path: string): never => {
-  logger.warn({ code: "ALFRED_UNAVAILABLE", path, reason }, "alfred messaging unavailable");
+  // Route template only: a query string can carry a member's account id.
+  const route = path.split("?")[0]?.replace(/\/threads\/[^/]+/, "/threads/:id");
+  logger.warn({ code: "ALFRED_UNAVAILABLE", path: route, reason }, "alfred messaging unavailable");
   throw new AlfredMessagingUnavailableError(reason);
 };
 

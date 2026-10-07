@@ -1,5 +1,5 @@
 import type { Request } from "express";
-import { AppError, NotFoundError } from "../../common/errors/AppError.js";
+import { AppError, ConflictError, NotFoundError } from "../../common/errors/AppError.js";
 import { actor } from "../../common/http.js";
 import {
   AlfredMessagingError,
@@ -8,6 +8,7 @@ import {
   type PartnerActor,
   alfredPartnerMessagingClient as alfred,
 } from "../../common/services/alfredPartnerMessagingClient.js";
+import { logger } from "../../common/utils/logger.js";
 import { audit } from "../audit/audit.js";
 import { Member } from "../member/member.model.js";
 import { memberScope } from "../member/member.scope.js";
@@ -44,6 +45,7 @@ export async function fetchAllThreads(): Promise<AlfredPartnerThread[]> {
     const result = await alfred.listThreads({ page, limit: PAGE });
     out.push(...result.items);
     if (page >= result.totalPages) break;
+    if (page === MAX_PAGES) logger.warn({ total: result.total }, "messaging thread list truncated");
   }
   return out.sort((a, b) => (b.lastMessageAt ?? "").localeCompare(a.lastMessageAt ?? ""));
 }
@@ -116,12 +118,14 @@ export async function actorFor(req: Request): Promise<PartnerActor> {
  * A thread is reachable only through a member the actor may see, and only if Alfred lists it
  * under that member's account: an id from elsewhere is a 404, never someone else's thread.
  */
-async function threadOf(req: Request, memberId: string, threadId: string) {
+async function threadOf(req: Request, memberId: string, threadId: string, { write = false } = {}) {
   const member = await Member.findOne({ _id: memberId, ...(await memberScope(req)) })
-    .select("alfredAccountId")
+    .select("alfredAccountId archivedAt")
     .lean();
   const accountId = member?.alfredAccountId;
   if (!accountId) throw new NotFoundError("Thread not found");
+  if (write && member.archivedAt)
+    throw new ConflictError("Archived members cannot be messaged", undefined, "MEMBER_ARCHIVED");
   const { items } = await viaAlfred(() => alfred.listThreads({ accountId, limit: PAGE }));
   if (!items.some((t) => t.id === threadId)) throw new NotFoundError("Thread not found");
 }
@@ -132,7 +136,9 @@ export async function listMessages(
   query: { memberId: string; page: number; limit: number }
 ) {
   await threadOf(req, query.memberId, threadId);
-  const page = await viaAlfred(() => alfred.listMessages(threadId, query));
+  const page = await viaAlfred(() =>
+    alfred.listMessages(threadId, { page: query.page, limit: query.limit })
+  );
   await audit(req, "viewed", "MessageThread", threadId, query.memberId);
   return page;
 }
@@ -140,11 +146,15 @@ export async function listMessages(
 export async function sendMessage(
   req: Request,
   threadId: string,
-  input: { memberId: string; body: string }
+  input: { memberId: string; body: string; messageRef: string }
 ) {
-  await threadOf(req, input.memberId, threadId);
+  await threadOf(req, input.memberId, threadId, { write: true });
   const message = await viaAlfred(async () =>
-    alfred.sendMessage(threadId, { actor: await actorFor(req), body: input.body })
+    alfred.sendMessage(threadId, {
+      actor: await actorFor(req),
+      body: input.body,
+      messageRef: input.messageRef,
+    })
   );
   // Ids only: the body never reaches the audit trail.
   await audit(req, "created", "Message", message.id, input.memberId);
@@ -152,6 +162,6 @@ export async function sendMessage(
 }
 
 export async function markRead(req: Request, threadId: string, input: { memberId: string }) {
-  await threadOf(req, input.memberId, threadId);
+  await threadOf(req, input.memberId, threadId, { write: true });
   return viaAlfred(async () => alfred.markRead(threadId, { actor: await actorFor(req) }));
 }

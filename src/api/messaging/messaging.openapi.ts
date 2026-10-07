@@ -14,11 +14,16 @@ const responses = {
 };
 const threadId = { name: "threadId", in: "path", required: true, schema: { type: "string" } };
 const memberId = { name: "memberId", in: "query", required: true, schema: { type: "string" } };
-const op = (summary: string, parameters: unknown[] = []) => ({
+const body = (properties: Record<string, unknown>, required: string[]) => ({
+  required: true,
+  content: { "application/json": { schema: { type: "object", required, properties } } },
+});
+const op = (summary: string, parameters: unknown[] = [], requestBody?: unknown) => ({
   summary,
   tags: ["Messaging"],
   security: [{ staffBearer: [] }],
   parameters,
+  ...(requestBody ? { requestBody } : {}),
   responses,
 });
 export const messagingPaths = {
@@ -42,11 +47,27 @@ export const messagingPaths = {
       ...["page", "limit"].map((name) => ({ name, in: "query", schema: { type: "string" } })),
     ]),
     post: op(
-      "Reply as the signed-in staff member: {memberId, body (1-2000)}; no attachments (MEMBER_RECORDS edit). Audited, ids only.",
-      [threadId]
+      "Reply as the signed-in staff member: {memberId, body (1-2000), messageRef}; no attachments (MEMBER_RECORDS edit). Audited, ids only.",
+      [threadId],
+      body(
+        {
+          memberId: { type: "string" },
+          body: { type: "string", maxLength: 2000 },
+          messageRef: {
+            type: "string",
+            format: "uuid",
+            description: "One per draft; Alfred dedupes a retry on it.",
+          },
+        },
+        ["memberId", "body", "messageRef"]
+      )
     ),
   },
   "/api/v1/messaging/threads/{threadId}/read": {
-    post: op("Mark a thread read for staff: {memberId} (MEMBER_RECORDS edit).", [threadId]),
+    post: op(
+      "Mark a thread read for staff (MEMBER_RECORDS edit).",
+      [threadId],
+      body({ memberId: { type: "string" } }, ["memberId"])
+    ),
   },
 };
