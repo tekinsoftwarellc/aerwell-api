@@ -62,6 +62,8 @@ const schema = new Schema(
     status: { type: String, enum: PRODUCT_ORDER_STATUSES, default: "placed" },
     acceptedTermsVersion: String,
     alfredOrderRef: String,
+    /** The request's Idempotency-Key, so a re-run of a placed order finds the order it already made. */
+    idempotencyKey: String,
     paymentIntentId: String,
     paidAt: Date,
     paidCents: { type: Number, default: 0 },
@@ -87,6 +89,7 @@ const schema = new Schema(
 );
 schema.index({ organizationId: 1, memberId: 1, updatedAt: 1, _id: 1 });
 schema.index({ organizationId: 1, updatedAt: 1, _id: 1 });
+schema.index({ organizationId: 1, accountId: 1, idempotencyKey: 1 }, { sparse: true });
 // The auto-release sweep: unpaid placed orders by age.
 schema.index({ status: 1, createdAt: 1 });
 export const ProductOrder = model("ProductOrder", schema);

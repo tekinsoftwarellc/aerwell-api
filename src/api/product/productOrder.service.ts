@@ -66,6 +66,17 @@ export async function placeOrder(req: Request, body: OrderBody) {
     throw new BadRequestError("accountId must match the acting member");
   if (body.shippingAddress.country.toUpperCase() !== SHIPS_TO)
     throw contractConflict("SHIPPING_UNAVAILABLE", "We only ship within the United States");
+  // A replay whose stored outcome was lost (the idempotency layer re-runs the handler) must answer the
+  // first order, not fight it for its own prescription.
+  const idempotencyKey = req.header("idempotency-key");
+  if (idempotencyKey) {
+    const prior = await ProductOrder.findOne({
+      organizationId: member.organizationId,
+      accountId: body.accountId,
+      idempotencyKey,
+    });
+    if (prior) return prior;
+  }
   const lines = await resolveLines(member.organizationId, body.items);
   const priced = lines.map((l) => ({
     productId: l.product._id,
@@ -98,6 +109,7 @@ export async function placeOrder(req: Request, body: OrderBody) {
           organizationId: member.organizationId,
           memberId: member._id,
           accountId: body.accountId,
+          ...(idempotencyKey ? { idempotencyKey } : {}),
           items: priced,
           shippingAddress: body.shippingAddress,
           // Prices are tax-inclusive (Q11): tax is always 0 and the total is what the member sees.

@@ -70,6 +70,11 @@ const orderSchema = new Schema(
   { timestamps: true }
 );
 orderSchema.index({ organizationId: 1, memberId: 1, createdAt: -1 });
+// Consume and release look a prescription up by the order that holds it.
+orderSchema.index(
+  { claimedByOrderId: 1 },
+  { partialFilterExpression: { claimedByOrderId: { $type: "objectId" } } }
+);
 export const SupplementOrder = model("SupplementOrder", orderSchema);
 export type SupplementOrderData = InferSchemaType<typeof orderSchema>;
 

@@ -9,6 +9,7 @@ import {
 } from "../../test/partnerFixture.js";
 import { type ProductWorld, productWorld } from "../../test/productFixture.js";
 import { app } from "../../test/scheduleFixture.js";
+import { PartnerIdempotencyKey } from "../alfred-partner/partnerIdempotency.model.js";
 import { SupplementOrder, SupplementProduct } from "../supplement/supplement.js";
 import { ProductOrder } from "./productOrder.model.js";
 import { UNPAID_RELEASE_MS, releaseUnpaidOrders } from "./productOrder.service.js";
@@ -91,7 +92,7 @@ describe("prescription covers one purchase up to its quantity", () => {
     expect((await rx(p._id))?.consumedAt).toBeTruthy();
     await w.event("order.refunded", third, { amountCents: 6700 }, "rest");
     expect(await rx(p._id)).toMatchObject({ claimedByOrderId: null, consumedAt: null });
-    expect(second).not.toBe(third);
+    expect((await ProductOrder.findById(second).lean())?.status).toBe("cancelled");
   });
 
   it("a shipped order keeps its prescription consumed through a refund", async () => {
@@ -145,5 +146,44 @@ describe("prescription covers one purchase up to its quantity", () => {
     });
     await w.prescribe(p._id, other._id, 3);
     expect((await order(w, p.sku, 1)).status).toBe(409);
+  });
+
+  it("a late payment on a released order leaves the prescription a newer order holds untouched", async () => {
+    const w = await productWorld();
+    const p = await prescribed(w, 1);
+    const old = (await order(w, p.sku, 1)).body.data.orderRef as string;
+    await releaseUnpaidOrders(new Date(Date.now() + UNPAID_RELEASE_MS + 1000));
+    const fresh = (await order(w, p.sku, 1)).body.data.orderRef as string;
+    await w.event("order.paid", old, { amountCents: 3400 });
+    expect(await rx(p._id)).toMatchObject({ consumedAt: null });
+    expect(String((await rx(p._id))?.claimedByOrderId)).toBe(fresh);
+  });
+
+  it("cancelling a paid or prepaid order before shipping frees the prescription", async () => {
+    const w = await productWorld();
+    const p = await prescribed(w, 1);
+    const res = await w.place([{ itemRef: ref(p.sku), quantity: 1 }], {
+      payment: { status: "paid", paymentIntentId: "pi_y", amountCents: 3400, currency: "usd" },
+    });
+    await w.alfred.post(`/orders/${res.body.data.orderRef}/cancel`, {});
+    expect(await rx(p._id)).toMatchObject({ claimedByOrderId: null, consumedAt: null });
+  });
+
+  it("replaying a placement whose stored outcome was lost returns the first order and keeps its prescription", async () => {
+    const w = await productWorld();
+    const p = await prescribed(w, 1);
+    const first = await w.place(
+      [{ itemRef: ref(p.sku), quantity: 1 }],
+      {},
+      "11111111-1111-4111-8111-111111111111"
+    );
+    await PartnerIdempotencyKey.deleteMany({});
+    const replay = await w.place(
+      [{ itemRef: ref(p.sku), quantity: 1 }],
+      {},
+      "11111111-1111-4111-8111-111111111111"
+    );
+    expect([replay.status, replay.body.data.orderRef]).toEqual([201, first.body.data.orderRef]);
+    expect(await ProductOrder.countDocuments()).toBe(1);
   });
 });
