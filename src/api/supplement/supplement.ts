@@ -22,6 +22,13 @@ const productSchema = new Schema(
     size: { type: String, default: null },
     priceCents: { type: Number, required: true, min: 0 },
     active: { type: Boolean, default: true },
+    // Product sales (contract `products`). A product is sold only while `forSale` and `active`, and
+    // only to a member a clinician prescribed it to (a SupplementOrder draft is that offer).
+    description: { type: String, default: "" },
+    imageKey: String,
+    stock: { type: Number, default: 0, min: 0 },
+    weightGrams: { type: Number, default: null, min: 0 },
+    forSale: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
@@ -55,10 +62,19 @@ const orderSchema = new Schema(
       totalCents: { type: Number, required: true },
     },
     status: { type: String, enum: ORDER_STATUSES, default: "draft" },
+    // One prescription covers one purchase of up to `qty`. Placing the order claims it, a release
+    // before shipping clears it, payment stamps `consumedAt`.
+    claimedByOrderId: { type: Schema.Types.ObjectId, default: null },
+    consumedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );
 orderSchema.index({ organizationId: 1, memberId: 1, createdAt: -1 });
+// Consume and release look a prescription up by the order that holds it.
+orderSchema.index(
+  { claimedByOrderId: 1 },
+  { partialFilterExpression: { claimedByOrderId: { $type: "objectId" } } }
+);
 export const SupplementOrder = model("SupplementOrder", orderSchema);
 export type SupplementOrderData = InferSchemaType<typeof orderSchema>;
 

@@ -1,6 +1,7 @@
 import { startPartnerOutbox } from "./api/alfred-partner/outbox/partnerOutbox.publisher.js";
 import { startMessagePoller } from "./api/messaging/messaging.poller.js";
 import { startNotificationJobs } from "./api/notification/producers.js";
+import { startProductOrderRelease } from "./api/product/productOrder.service.js";
 import { attachVisitSockets } from "./api/visit/visit.socket.js";
 import { logger } from "./common/utils/logger.js";
 import { connectDB, disconnectDB } from "./config/database.js";
@@ -17,6 +18,8 @@ const jobs = env.AERWELL_ORG_ID ? startNotificationJobs(env.AERWELL_ORG_ID) : un
 const outbox = startPartnerOutbox();
 // Alfred cannot push member messages: poll for unread threads and raise generic staff notices.
 const messages = startMessagePoller(env.AERWELL_ORG_ID);
+// Unpaid product orders give their stock back after 30 minutes.
+const productRelease = startProductOrderRelease();
 const closeVisitSockets = attachVisitSockets(server);
 server.on("error", () => {
   logger.error("HTTP server failed");
@@ -31,6 +34,7 @@ const shutdown = async (): Promise<void> => {
   clearInterval(jobs);
   clearInterval(outbox);
   clearInterval(messages);
+  clearInterval(productRelease);
   const timeout = setTimeout(() => process.exit(1), SHUTDOWN_MS).unref();
   // Stop taking connections, then flush live captures while Mongo is still connected.
   server.close(async () => {
