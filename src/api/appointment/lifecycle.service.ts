@@ -10,6 +10,11 @@ import {
   ValidationError,
 } from "../../common/errors/AppError.js";
 import { actor } from "../../common/http.js";
+import {
+  bookingCancelled,
+  bookingStatus,
+} from "../alfred-partner/outbox/partnerOutbox.payloads.js";
+import { enqueueForMember } from "../alfred-partner/outbox/partnerOutbox.service.js";
 import { audit } from "../audit/audit.js";
 import { Member, MemberFlag } from "../member/member.model.js";
 import { permissionsOf } from "../member/member.scope.js";
@@ -148,6 +153,12 @@ export async function changeStatus(req: Request) {
           );
         [noShowFlag] = await recordNoShow(row, session);
       }
+      if (to === "checked_in" || to === "completed" || to === "no_show")
+        await enqueueForMember(
+          row.memberId,
+          (account) => Promise.resolve(bookingStatus(account, updated, to)),
+          session
+        );
       await audit(
         req,
         `status_${to}`,
@@ -200,6 +211,12 @@ async function applyCancellation(
   session: ClientSession
 ) {
   const terms = await cancellationTerms(row, new Date(), session);
+  // A booking Alfred priced and charged: the unit lives in Alfred, so lateness is the window itself
+  // whatever the fee (decision 6), and Alfred's payment record is left exactly as it is.
+  const external = Boolean(row.externalPayment);
+  const late = external
+    ? row.startAt.getTime() - Date.now() < terms.windowHours * HOUR
+    : terms.late;
   // Once the member has checked in, the visit is being delivered: the unit is used.
   const started = ["checked_in", "in_progress"].includes(row.status);
   const forfeit = started || (terms.forfeitsAllowance && !input.waiveFee);
@@ -212,19 +229,39 @@ async function applyCancellation(
     session
   );
   const allowance = forfeit ? "forfeited" : "released";
-  return transition(req, row, "cancelled", session, {
+  const cancelled = await transition(req, row, "cancelled", session, {
     cancellation: {
       at: new Date(),
       byId: actor(req)._id,
+      by: "staff",
       reason: input.reason,
-      late: terms.late,
+      late,
       feeCents,
-      feeWaived: input.waiveFee && terms.late,
+      feeWaived: input.waiveFee && late,
       allowance: settled ? allowance : "none",
     },
-    amountDueCents: feeCents,
-    paymentStatus: feeCents > 0 ? "unconfigured" : "not_required",
+    ...(external
+      ? {}
+      : {
+          amountDueCents: feeCents,
+          paymentStatus: feeCents > 0 ? "unconfigured" : "not_required",
+        }),
   });
+  // A staff cancel reaches the member's phone through Alfred. A waived late fee is not a late cancel.
+  await enqueueForMember(
+    row.memberId,
+    (account) =>
+      Promise.resolve(
+        bookingCancelled(account, cancelled, {
+          by: "staff",
+          at: cancelled.cancellation?.at ?? new Date(),
+          feeCents,
+          late: late && !input.waiveFee,
+        })
+      ),
+    session
+  );
+  return cancelled;
 }
 
 export async function cancelAppointment(req: Request) {

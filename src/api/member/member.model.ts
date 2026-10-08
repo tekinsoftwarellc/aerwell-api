@@ -39,9 +39,26 @@ const memberSchema = new Schema(
   {
     organizationId: { type: String, required: true, index: true },
     alfredAccountId: { type: String, default: undefined },
+    // Set when Alfred reports `member.deleted`. The clinical record is never deleted.
+    alfredUnlinkedAt: { type: Date, default: null },
+    // RECORD ONLY: the membership Alfred last reported (contract §5.2). Never read by the
+    // entitlement evaluator and never creates a MemberMembership, ledger or plan row.
+    alfredMembership: {
+      type: new Schema(
+        {
+          tierKey: { type: String, required: true },
+          status: { type: String, enum: ["active", "suspended", "cancelled"], required: true },
+          validUntil: { type: Date, default: undefined },
+          updatedAt: { type: Date, required: true },
+        },
+        { _id: false }
+      ),
+      default: undefined,
+    },
     firstName: { type: String, required: true, trim: true },
-    lastName: { type: String, required: true, trim: true },
-    email: { type: String, required: true, trim: true, lowercase: true },
+    // Optional: Alfred sends one name at most and never an email (contract §5.1).
+    lastName: { type: String, trim: true, default: "" },
+    email: { type: String, trim: true, lowercase: true },
     phone: String,
     dateOfBirth: String,
     sex: { type: String, enum: ["male", "female"] },
@@ -66,7 +83,16 @@ const memberSchema = new Schema(
   },
   { timestamps: true }
 );
-memberSchema.index({ organizationId: 1, email: 1 }, { unique: true });
+// Partial: a member provisioned by Alfred has no email, and absent emails must not collide.
+memberSchema.index(
+  { organizationId: 1, email: 1 },
+  {
+    // New name: the old full unique index (`organizationId_1_email_1`) is retired in config/indexes.ts.
+    name: "organizationId_1_email_1_partial",
+    unique: true,
+    partialFilterExpression: { email: { $type: "string" } },
+  }
+);
 memberSchema.index(
   { organizationId: 1, alfredAccountId: 1 },
   { unique: true, partialFilterExpression: { alfredAccountId: { $type: "string" } } }

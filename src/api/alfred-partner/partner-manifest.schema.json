@@ -1,0 +1,321 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://api-alfred.tekinsoftware.com/schemas/partner-manifest-v1.json",
+  "title": "Alfred Partner Manifest v1",
+  "description": "The manifest a partner registers with Alfred. Stored as OrganizationRegistry.partner.manifest. Frozen with Partner Contract v1: inside version 1 only new optional properties may be added, never removed, renamed or retyped. Registry-owned fields (name, slug, branding) are NOT manifest fields.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contractVersion",
+    "baseUrl",
+    "audience",
+    "capabilities",
+    "locations",
+    "terms",
+    "cancellationPolicy",
+    "support"
+  ],
+  "properties": {
+    "$comment": {
+      "type": "string",
+      "description": "Free-text note carried by example and placeholder manifests. Ignored by Alfred."
+    },
+    "contractVersion": {
+      "const": 1,
+      "description": "The contract version this manifest is written against. Sent as x-contract-version: 1 on every cross-boundary call."
+    },
+    "baseUrl": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://[^\\s]+$",
+      "maxLength": 255,
+      "description": "Origin Alfred calls. Every partner endpoint is <baseUrl>/api/v1/alfred/*. HTTPS only, on dev too. No trailing slash."
+    },
+    "audience": {
+      "type": "string",
+      "pattern": "^partner-[a-z0-9-]+$",
+      "maxLength": 64,
+      "description": "The aud claim of every Alfred-to-partner token. Format partner-<slug>; the partner resolves its own org from aud. Unique across partners."
+    },
+    "displayName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "description": "Name shown to members. Falls back to OrganizationRegistry.name when absent."
+    },
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "services",
+          "trainings",
+          "classes",
+          "products",
+          "clinical",
+          "messaging",
+          "memberships"
+        ]
+      },
+      "description": "Standard capabilities this partner implements. Declaring one obliges the partner to the endpoints listed in Partner Contract v1 section 9."
+    },
+    "locations": {
+      "type": "array",
+      "minItems": 0,
+      "items": { "$ref": "#/$defs/location" },
+      "description": "Physical or virtual locations. At least one is required by Alfred when services, classes or clinical is declared (capability-dependent, so enforced by Alfred, not by this schema)."
+    },
+    "terms": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "version", "summary"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://[^\\s]+$",
+          "maxLength": 255,
+          "description": "Where the full terms are published."
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "description": "Opaque version string. Alfred records the value the member accepted and echoes it to the partner as acceptedTermsVersion."
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 500,
+          "description": "One paragraph Alfred shows in the app before acceptance."
+        }
+      },
+      "description": "Partner terms the member accepts before a first order at this partner."
+    },
+    "cancellationPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary", "windowHours"],
+      "properties": {
+        "summary": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 500,
+          "description": "Human-readable policy shown in the app. Display only: Alfred performs no window arithmetic and always asks GET /bookings/{bookingRef}/cancellation-quote."
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://[^\\s]+$",
+          "maxLength": 255
+        },
+        "windowHours": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8760,
+          "description": "Display value for the free-cancellation window. Not authoritative: the authoritative answer is the live cancellation quote."
+        },
+        "lateFeeCents": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Display value for the late-cancellation fee, in minor units of the partner's currency."
+        }
+      }
+    },
+    "support": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["email"],
+      "properties": {
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 255,
+          "description": "Partner support address shown to members and used by Alfred operators. Never a member address."
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://[^\\s]+$",
+          "maxLength": 255
+        }
+      }
+    },
+    "customTools": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 50,
+      "items": { "$ref": "#/$defs/customTool" },
+      "description": "Partner-specific tools Alfred AI may call at POST <baseUrl>/api/v1/alfred/tools/execute. Names must be unique within the manifest (enforced by Alfred). Every tool requires platform-admin approval before Alfred AI may use it; approval state lives on Alfred and never in the manifest."
+    },
+    "membershipRequiredByDefault": {
+      "type": "boolean",
+      "default": false,
+      "description": "When true, catalogue items of this partner default to visibility \"members\" unless the item says otherwise."
+    },
+    "trainings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "exerciseLibrary": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true the partner serves GET /exercise-library and Alfred builds this partner's members' workouts from it. Requires the trainings capability."
+        }
+      },
+      "description": "Optional configuration for the trainings capability."
+    },
+    "messaging": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sensitivity": {
+          "type": "string",
+          "enum": ["standard", "clinical"],
+          "default": "standard",
+          "description": "How this partner's message threads are handled. \"clinical\" threads need a plan with clinician chat to open and to send, carry no message text in notifications or push, never reach the AI assistant, and every staff read is audited. Stamped on a thread when it is created. Requires the messaging capability."
+        }
+      },
+      "description": "Optional configuration for the messaging capability."
+    },
+    "staffDirectoryUrl": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://[^\\s]+$",
+      "maxLength": 255,
+      "description": "Optional human-facing page listing the partner's staff. Alfred never fetches it; it is shown to platform admins."
+    }
+  },
+  "$defs": {
+    "location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "name", "address", "geo", "timezone"],
+      "properties": {
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9._:-]+$",
+          "description": "Partner-owned opaque location reference. Alfred echoes it back as locationRef and stores it on Listing.locations[].partnerLocationRef."
+        },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "address": { "$ref": "#/$defs/address" },
+        "geo": { "$ref": "#/$defs/geoPoint" },
+        "timezone": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 64,
+          "pattern": "^[A-Za-z]+/[A-Za-z0-9_+-]+$",
+          "description": "IANA timezone. Every local time the partner returns is resolved against this zone."
+        },
+        "phone": { "type": "string", "minLength": 5, "maxLength": 32 },
+        "hours": { "$ref": "#/$defs/openingHours" }
+      }
+    },
+    "address": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["line1", "city", "region", "postalCode", "country"],
+      "properties": {
+        "line1": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "line2": { "type": "string", "maxLength": 200 },
+        "city": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "region": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "postalCode": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "country": {
+          "type": "string",
+          "pattern": "^[A-Z]{2}$",
+          "description": "ISO 3166-1 alpha-2, upper case."
+        }
+      }
+    },
+    "geoPoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "coordinates"],
+      "properties": {
+        "type": { "const": "Point" },
+        "coordinates": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "prefixItems": [
+            { "type": "number", "minimum": -180, "maximum": 180 },
+            { "type": "number", "minimum": -90, "maximum": 90 }
+          ],
+          "items": false,
+          "description": "GeoJSON order: [longitude, latitude]."
+        }
+      }
+    },
+    "openingHours": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mon": { "$ref": "#/$defs/dayHours" },
+        "tue": { "$ref": "#/$defs/dayHours" },
+        "wed": { "$ref": "#/$defs/dayHours" },
+        "thu": { "$ref": "#/$defs/dayHours" },
+        "fri": { "$ref": "#/$defs/dayHours" },
+        "sat": { "$ref": "#/$defs/dayHours" },
+        "sun": { "$ref": "#/$defs/dayHours" }
+      },
+      "description": "Local opening hours per weekday, in the location's timezone. A missing or empty day means closed. Display only: bookable time comes from GET /availability."
+    },
+    "dayHours": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["open", "close"],
+        "properties": {
+          "open": { "type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$" },
+          "close": { "type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$" }
+        }
+      }
+    },
+    "customTool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "description", "inputSchema", "writes"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{2,47}$",
+          "description": "Tool name sent as toolName in POST /api/v1/alfred/tools/execute. There is no endpoint field: every custom tool of every partner is executed at that one path."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 300,
+          "description": "What the tool does, written for Alfred AI to choose it."
+        },
+        "inputSchema": {
+          "type": "object",
+          "required": ["type"],
+          "properties": { "type": { "const": "object" } },
+          "description": "JSON Schema for the tool input. This is the one object in the manifest that does not set additionalProperties: false, because its own contents are an arbitrary JSON Schema."
+        },
+        "writes": {
+          "type": "boolean",
+          "description": "True when the tool changes partner state. A write tool always requires the member's confirmation before Alfred calls it with confirmed: true."
+        },
+        "confirmationText": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 200,
+          "description": "Sentence shown to the member before a write tool runs. Required when writes is true."
+        }
+      },
+      "if": {
+        "properties": { "writes": { "const": true } },
+        "required": ["writes"]
+      },
+      "then": { "required": ["confirmationText"] }
+    }
+  }
+}

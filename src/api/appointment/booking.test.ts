@@ -60,13 +60,17 @@ it("books an included telehealth visit from the real allowance, snapshots the qu
   expect(await AuditEvent.exists({ targetType: "Appointment", action: "created" })).toBeTruthy();
 });
 
-it("denies by the evaluator's reason and never books: non-member, New York DEXA, bundles", async () => {
+it("prices a non-member pay per use; denies New York DEXA and bare bundles", async () => {
   const w = await bookingWorld();
   const free = await w.member();
   const essential = await w.member(["aerwell-essential"]);
-  const denied = await w.api.post("/api/v1/appointments", w.booking(free._id, "dexa-scan"));
-  expect(denied.status).toBe(422);
-  expect(denied.body.code).toBe("NOT_ELIGIBLE");
+  const payPerUse = await w.quoteOf(w.booking(free._id, "dexa-scan"));
+  expect(payPerUse.body.data).toMatchObject({
+    bookable: true,
+    decision: "retail",
+    finalCents: 17500,
+    selection: { membershipId: null, planId: null },
+  });
   const ny = await w.quoteOf({
     ...w.booking(free._id, "dexa-scan"),
     locationId: String(w.newYork._id),

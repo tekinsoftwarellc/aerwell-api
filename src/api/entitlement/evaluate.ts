@@ -41,8 +41,8 @@ interface Candidate {
 const isCurrent = (m: MembershipHolding, at: Date) =>
   m.status === "active" && m.startedAt <= at && (!m.endsAt || at < m.endsAt);
 
-// Only memberships the member currently holds entitle anything: with none,
-// every quote is denied NOT_ELIGIBLE (there is no implicit plan).
+// Only memberships the member currently holds carry benefits. A member with
+// none pays per use (see payPerUse).
 function activeCandidates(plans: PlanConfig[], memberships: MembershipHolding[], at: Date) {
   return memberships.flatMap((membership): Candidate[] => {
     const plan = plans.find((p) => p.id === membership.planId && p.status === "active");
@@ -160,6 +160,23 @@ function evaluateCandidate(
       : priceFromPricing(service, benefit);
   if (!priced) return fail("NOT_PURCHASABLE");
   return { selection, ok: true, denialReason: null, ...priced, allowance };
+}
+
+// No current membership: the service is sold at retail, pay per use. A
+// service without a retail price (a bundle-only component) cannot be bought.
+function payPerUse(service: ServiceConfig): CandidateOutcome {
+  const selection = { membershipId: null, planId: null, benefitId: null };
+  const priced = priceFromPricing(service, undefined);
+  return priced
+    ? { selection, ok: true, denialReason: null, ...priced, allowance: null }
+    : {
+        selection,
+        ok: false,
+        denialReason: "NOT_PURCHASABLE",
+        decision: null,
+        priceCents: null,
+        allowance: null,
+      };
 }
 
 function episodeOutcome(
@@ -281,7 +298,9 @@ export function evaluateEntitlement(
   const modifier = resolveModifier(catalog, req, service);
   if (modifier === "unavailable") return deny("DELIVERY_UNAVAILABLE", version);
   const candidates = activeCandidates(catalog.plans, req.memberships, req.at);
-  const outcomes = candidates.map((c) => evaluateCandidate(service, c, req));
+  const outcomes = candidates.length
+    ? candidates.map((c) => evaluateCandidate(service, c, req))
+    : [payPerUse(service)];
   const episode = episodeOutcome(catalog, service, candidates, req);
   const valid = [...(episode ? [episode] : []), ...outcomes]
     .filter((o) => o.ok)

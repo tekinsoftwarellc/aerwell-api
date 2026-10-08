@@ -90,4 +90,7 @@ export const PUBLIC_ROUTES = new Set([
   "POST /api/v1/auth/accept-invite",
   // Authenticated by the Stripe signature over the raw body.
   "POST /api/v1/webhooks/stripe",
+  // Redirect to a short-lived presigned URL of a marketing image; Zod validated.
+  "GET /api/v1/public/service-images/{slug}",
+  "GET /api/v1/public/product-images/{sku}",
 ]);

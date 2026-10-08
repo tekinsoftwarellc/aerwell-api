@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { PARTNER_PATH } from "./api/alfred-partner/partner.paths.js";
 import { createServer } from "./server.js";
 import { PUBLIC_ROUTES as PUBLIC, mountedRoutes } from "./test/routes.js";
 
@@ -53,7 +54,10 @@ const SELF_SCOPED = new Set([
 ]);
 
 describe("route guards", () => {
-  const routes = mountedRoutes(createServer());
+  const all = mountedRoutes(createServer());
+  // Alfred's partner surface (contract v1) has its own guard and no staff session.
+  const isPartner = (chain: string[]) => chain.includes("alfredServiceAuth");
+  const routes = all.filter((r) => !isPartner(r.chain));
   const missing = (test: (chain: string[]) => boolean, exempt: Set<string>) =>
     routes
       .filter((r) => !(exempt.has(r.operation) || test(r.chain)))
@@ -82,6 +86,35 @@ describe("route guards", () => {
       .filter((r) => r.chain.filter((name) => name === "scopedRateLimit").length < 2)
       .map((r) => r.operation);
     expect(unlimited).toEqual([]);
+  });
+  it("guards every Alfred partner route with the service token and zod, never staff auth", () => {
+    const partner = all.filter((r) => isPartner(r.chain));
+    expect(partner.filter((r) => r.chain.includes("authenticate")).map((r) => r.operation)).toEqual(
+      []
+    );
+    expect(partner.filter((r) => !r.chain.includes("zodValidate")).map((r) => r.operation)).toEqual(
+      []
+    );
+    expect(
+      partner.filter((r) => !r.chain.includes("requireContractVersion")).map((r) => r.operation)
+    ).toEqual([]);
+  });
+  it("acts for the member on both clinical report routes", () => {
+    const report = all.filter((r) => r.operation.includes("/alfred/clinical/reports/"));
+    expect(report.map((r) => r.operation).sort()).toEqual([
+      "GET /api/v1/alfred/clinical/reports/{reportRef}",
+      "POST /api/v1/alfred/clinical/reports/{reportRef}/export",
+    ]);
+    for (const r of report) {
+      expect(r.chain).toContain("requireMemberAct");
+      expect(r.chain).toContain("resolveActingMember");
+    }
+  });
+  it("leaves no route on a partner path without the service-token guard", () => {
+    const unguarded = all
+      .filter((r) => PARTNER_PATH.test(r.operation.split(" ")[1] ?? "") && !isPartner(r.chain))
+      .map((r) => r.operation);
+    expect(unguarded).toEqual([]);
   });
   it("keeps every exemption pointing at a real route", () => {
     const ops = new Set(routes.map((r) => r.operation));

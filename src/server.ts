@@ -6,6 +6,10 @@ import mongoSanitize from "express-mongo-sanitize";
 import helmet from "helmet";
 import hpp from "hpp";
 import swaggerUi from "swagger-ui-express";
+import { partnerOutboxRouter } from "./api/alfred-partner/outbox/partnerOutbox.router.js";
+import { partnerContractEnabled } from "./api/alfred-partner/partner.config.js";
+import { PARTNER_PATH } from "./api/alfred-partner/partner.paths.js";
+import { createPartnerRouter, partnerIpLimiter } from "./api/alfred-partner/partner.router.js";
 import { createAlfredRouter } from "./api/alfred/alfred.router.js";
 import { appointmentRouter } from "./api/appointment/appointment.router.js";
 import { createAuthRouter, meRouter } from "./api/auth/auth.router.js";
@@ -16,9 +20,13 @@ import { dashboardRouter } from "./api/dashboard/dashboard.router.js";
 import { healthRouter } from "./api/health/health.router.js";
 import { createInviteRouter } from "./api/invite/invite.router.js";
 import { memberRouter } from "./api/member/member.router.js";
+import { messagingRouter } from "./api/messaging/messaging.router.js";
 import { notificationRouter } from "./api/notification/notification.router.js";
+import { productRouter } from "./api/product/product.router.js";
+import { publicProductImageRouter } from "./api/product/productImage.public.js";
 import { schedulingRouter } from "./api/schedule/schedule.router.js";
 import { serviceRouter } from "./api/service/service.router.js";
+import { publicServiceImageRouter } from "./api/service/serviceImage.public.js";
 import { settingsRouter } from "./api/settings/settings.router.js";
 import { staffRouter } from "./api/staff/staff.router.js";
 import { supplementRouter } from "./api/supplement/supplement.js";
@@ -41,7 +49,12 @@ export const createServer = (cache: CacheService = createCacheService()): Expres
   const origins = env.CORS_ORIGIN.split(",").map((origin) => origin.trim());
   app.use(cors({ origin: origins.includes("*") ? true : origins, credentials: true }));
   app.use(compression());
-  app.use(createRateLimiter(cache));
+  // Alfred is one IP; partner routes carry their own limiters (partner.router.ts).
+  const onPartnerPath = (req: { path: string }) =>
+    partnerContractEnabled() && PARTNER_PATH.test(req.path);
+  app.use(createRateLimiter(cache, onPartnerPath));
+  const perIp = partnerIpLimiter(cache);
+  app.use((req, res, next) => (onPartnerPath(req) ? perIp(req, res, next) : next()));
   app.use(requestLogger);
   // Raw body for signature verification: must precede the JSON parser.
   app.use("/api/v1", webhookRouter);
@@ -73,7 +86,16 @@ export const createServer = (cache: CacheService = createCacheService()): Expres
   app.use("/api/v1", visitRouter);
   // W10 Alfred AI + draft supplement orders (appended; self-contained routers).
   app.use("/api/v1", supplementRouter);
+  app.use("/api/v1", productRouter);
+  // D1 partner contract: guarded per route, so the staff assistant router below is untouched.
+  if (partnerContractEnabled()) app.use("/api/v1/alfred", createPartnerRouter(cache));
+  app.use("/api/v1", partnerOutboxRouter);
+  // AC-3b staff messaging inbox over Alfred (pass-through).
+  app.use("/api/v1", messagingRouter);
   app.use("/api/v1", createAlfredRouter(cache));
+  // Public catalog image links (Alfred stores them); independent of the partner contract flag.
+  app.use("/api/v1", publicServiceImageRouter);
+  app.use("/api/v1", publicProductImageRouter);
   app.use((_req, _res, next) => next(new NotFoundError("Route not found")));
   app.use(errorHandler);
   return app;

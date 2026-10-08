@@ -10,6 +10,8 @@ import {
   ValidationError,
 } from "../../common/errors/AppError.js";
 import { actor } from "../../common/http.js";
+import { bookingCancelled } from "../alfred-partner/outbox/partnerOutbox.payloads.js";
+import { enqueueForMember } from "../alfred-partner/outbox/partnerOutbox.service.js";
 import { audit } from "../audit/audit.js";
 import { STANDARD_DELIVERY } from "../entitlement/entitlement.types.js";
 import { memberTarget } from "../member/member.scope.js";
@@ -215,18 +217,32 @@ export async function cancelEpisode(req: Request) {
           cancellation: {
             at: now,
             byId: staff._id,
+            by: "staff",
             reason,
             late: false,
             feeCents: 0,
             allowance: "none",
           },
-          amountDueCents: 0,
-          paymentStatus: "not_required",
         },
         $push: { statusHistory: { status: "cancelled", at: now, byId: staff._id } },
       },
       { session }
     );
+    // Aerwell's own bookings owe nothing now; an Alfred-paid one keeps the payment Alfred recorded.
+    await Appointment.updateMany(
+      { _id: { $in: dropped.map((d) => d._id) }, externalPayment: { $exists: false } },
+      { $set: { amountDueCents: 0, paymentStatus: "not_required" } },
+      { session }
+    );
+    for (const row of dropped)
+      await enqueueForMember(
+        row.memberId,
+        (account) =>
+          Promise.resolve(
+            bookingCancelled(account, row, { by: "staff", at: now, feeCents: 0, late: false })
+          ),
+        session
+      );
     await ledger.settle({ episodeId: episode._id }, "released", String(staff._id), reason, session);
     episode.set({
       status: "cancelled",

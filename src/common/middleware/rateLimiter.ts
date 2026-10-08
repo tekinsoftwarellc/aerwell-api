@@ -23,6 +23,8 @@ export interface ScopedRateLimitOptions {
   /** Derives the bucket key from the request. Defaults to client IP. */
   keyFn?: (req: Request) => string;
   message?: string;
+  /** Requests that carry their own limiter (the Alfred partner surface) are not counted here. */
+  skip?: (req: Request) => boolean;
 }
 
 /**
@@ -31,12 +33,16 @@ export interface ScopedRateLimitOptions {
  * bucket key can be derived from the request body (e.g. per-email).
  */
 export const createScopedRateLimiter = (cache: CacheService, options: ScopedRateLimitOptions) => {
-  const { prefix, max, keyFn, message } = options;
+  const { prefix, max, keyFn, message, skip } = options;
   return async function scopedRateLimit(
     req: Request,
     res: Response,
     next: NextFunction
   ): Promise<void> {
+    if (skip?.(req)) {
+      next();
+      return;
+    }
     const key = `${prefix}${keyFn ? keyFn(req) : requestIp(req)}`;
 
     const count = await cache.increment(key, options.windowSeconds);
@@ -56,9 +62,10 @@ export const createScopedRateLimiter = (cache: CacheService, options: ScopedRate
 };
 
 /** Global per-IP limiter applied to every route (config via RATE_LIMIT_* env). */
-export const createRateLimiter = (cache: CacheService) =>
+export const createRateLimiter = (cache: CacheService, skip?: (req: Request) => boolean) =>
   createScopedRateLimiter(cache, {
     prefix: RATE_LIMIT_PREFIX,
     windowSeconds,
     max: maxRequestsPerWindow,
+    ...(skip ? { skip } : {}),
   });

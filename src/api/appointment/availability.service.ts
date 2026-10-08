@@ -7,6 +7,7 @@ import type { ClientSession, Types } from "mongoose";
 import { NotFoundError, ValidationError } from "../../common/errors/AppError.js";
 import { actor } from "../../common/http.js";
 import { audit } from "../audit/audit.js";
+import { STANDARD_DELIVERY } from "../entitlement/entitlement.types.js";
 import { Location } from "../location/location.model.js";
 import { PtoRequest, Shift } from "../schedule/schedule.model.js";
 import { addDays, localInstant, todayIn } from "../schedule/time.js";
@@ -32,6 +33,8 @@ export interface SlotContext {
   capacityMax: number;
   windows: Window[];
   busy: Busy[];
+  /** Live appointments of every service in this service's room or machine (empty when it has none). */
+  roomBusy?: Busy[];
   now: Date;
 }
 
@@ -40,6 +43,18 @@ export function slotCapacity(ctx: SlotContext, start: Date): number {
   const end = new Date(start.getTime() + ctx.durationMinutes * MINUTE);
   if (start <= ctx.now) return 0;
   if (!ctx.windows.some((w) => w.start <= start && end <= w.end)) return 0;
+  // One booking at a time per room or machine, whoever the provider is (a group session may share).
+  const roomTaken = (ctx.roomBusy ?? []).some(
+    (b) =>
+      b.startAt < end &&
+      b.endAt > start &&
+      !(
+        ctx.capacityMax > 1 &&
+        b.serviceId === ctx.serviceId &&
+        b.startAt.getTime() === start.getTime()
+      )
+  );
+  if (roomTaken) return 0;
   const overlapping = ctx.busy.filter((b) => b.startAt < end && b.endAt > start);
   if (!overlapping.length) return ctx.capacityMax;
   // Only the same group session (same service, same start) can share a slot.
@@ -110,12 +125,46 @@ async function providerWindows(
   });
 }
 
+/** Live appointments in the same environment as `service`, for the room or machine check. */
+async function roomOccupancy(
+  service: ServiceDoc,
+  range: Window,
+  session: ClientSession | null,
+  excludeAppointmentId?: unknown
+) {
+  const sharing = await Service.find({
+    organizationId: service.organizationId,
+    environmentId: service.environmentId,
+  })
+    .distinct("_id")
+    .session(session);
+  return Appointment.find({
+    organizationId: service.organizationId,
+    serviceId: { $in: sharing },
+    // A delivery away from the clinic (mobile phlebotomy) never occupied the room.
+    deliveryMethod: { $in: [STANDARD_DELIVERY, null] },
+    status: { $in: LIVE_STATUSES },
+    startAt: { $lt: range.end },
+    endAt: { $gt: range.start },
+    ...(excludeAppointmentId ? { _id: { $ne: excludeAppointmentId } } : {}),
+  })
+    .select("startAt endAt serviceId")
+    .session(session)
+    .lean();
+}
+
 export async function slotContext(
   location: LocationDoc,
   service: ServiceDoc,
   providerId: Types.ObjectId | string,
   range: Window,
-  options: { session?: ClientSession | null; excludeAppointmentId?: unknown; now?: Date } = {}
+  options: {
+    session?: ClientSession | null;
+    excludeAppointmentId?: unknown;
+    now?: Date;
+    /** A delivery away from the clinic (mobile phlebotomy) needs no room. */
+    deliveryMethod?: string;
+  } = {}
 ): Promise<SlotContext> {
   const session = options.session ?? null;
   const windows = await providerWindows(location, providerId, range, session);
@@ -130,12 +179,24 @@ export async function slotContext(
     .select("startAt endAt serviceId")
     .session(session)
     .lean();
+  const needsRoom =
+    Boolean(service.environmentId) &&
+    (options.deliveryMethod ?? STANDARD_DELIVERY) === STANDARD_DELIVERY;
+  const room = needsRoom
+    ? await roomOccupancy(service, range, session, options.excludeAppointmentId)
+    : [];
+  const toBusy = (b: { startAt: Date; endAt: Date; serviceId: unknown }) => ({
+    startAt: b.startAt,
+    endAt: b.endAt,
+    serviceId: String(b.serviceId),
+  });
   return {
     durationMinutes: service.durationMinutes,
     serviceId: String(service._id),
     capacityMax: service.capacityMax,
     windows,
-    busy: busy.map((b) => ({ startAt: b.startAt, endAt: b.endAt, serviceId: String(b.serviceId) })),
+    busy: busy.map(toBusy),
+    roomBusy: room.map(toBusy),
     now: options.now ?? new Date(),
   };
 }

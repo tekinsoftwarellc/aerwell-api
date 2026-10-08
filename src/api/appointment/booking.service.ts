@@ -11,13 +11,32 @@ import {
   ValidationError,
 } from "../../common/errors/AppError.js";
 import { actor } from "../../common/http.js";
+import {
+  bookingCreated,
+  bookingRescheduled,
+} from "../alfred-partner/outbox/partnerOutbox.payloads.js";
+import { enqueueForMember } from "../alfred-partner/outbox/partnerOutbox.service.js";
 import { audit } from "../audit/audit.js";
 import type { EntitlementQuote } from "../entitlement/entitlement.types.js";
 import { STANDARD_DELIVERY } from "../entitlement/entitlement.types.js";
 import { appointmentChanged } from "../notification/producers.js";
+import { Service } from "../service/service.model.js";
 import { Appointment, type AppointmentDocument, LIVE_STATUSES } from "./appointment.model.js";
-import { eligibleProviders, slotCapacity, slotContext } from "./availability.service.js";
-import { ensureLocks, ledger, memberLock, providerLock, takeLocks } from "./ledger.service.js";
+import {
+  bookableLocation,
+  bookableService,
+  eligibleProviders,
+  slotCapacity,
+  slotContext,
+} from "./availability.service.js";
+import {
+  ensureLocks,
+  environmentLock,
+  ledger,
+  memberLock,
+  providerLock,
+  takeLocks,
+} from "./ledger.service.js";
 import {
   type ExpectedQuote,
   assertBookable,
@@ -44,17 +63,25 @@ export async function lockedTransaction<T>(
   });
 }
 
-interface SlotRequest {
+export interface SlotRequest {
   organizationId: string;
   memberId: Types.ObjectId | string;
   providerId: string;
   startAt: Date;
   excludeId?: unknown;
+  /** Anything but the standard delivery (mobile phlebotomy) needs no room or machine. */
+  deliveryMethod?: string;
 }
-type Quoted = Awaited<ReturnType<typeof buildQuote>>;
+type Quoted = Pick<Awaited<ReturnType<typeof buildQuote>>, "service" | "location">;
 
-/** Provider eligibility, grid alignment, shift/PTO/hours/capacity and member overlap. */
-async function assertSlot(quoted: Quoted, slot: SlotRequest, session: ClientSession) {
+/** The lock a room or machine needs so two members with two providers cannot both take it. */
+export async function roomLocks(serviceId: Types.ObjectId | string): Promise<string[]> {
+  const service = await Service.findOne({ _id: serviceId }).select("environmentId").lean();
+  return service?.environmentId ? [environmentLock(service.environmentId)] : [];
+}
+
+/** Provider eligibility, grid alignment, shift/PTO/hours/room/capacity and member overlap. */
+export async function assertSlot(quoted: Quoted, slot: SlotRequest, session: ClientSession) {
   const { service, location } = quoted;
   if (!(await eligibleProviders(service, slot.providerId, session)).length)
     throw new ValidationError(
@@ -72,7 +99,11 @@ async function assertSlot(quoted: Quoted, slot: SlotRequest, session: ClientSess
       start: slot.startAt,
       end: endAt,
     },
-    { session, excludeAppointmentId: slot.excludeId }
+    {
+      session,
+      excludeAppointmentId: slot.excludeId,
+      ...(slot.deliveryMethod ? { deliveryMethod: slot.deliveryMethod } : {}),
+    }
   );
   if (slotCapacity(ctx, slot.startAt) === 0)
     throw new ConflictError("That time is no longer available", undefined, "SLOT_UNAVAILABLE");
@@ -223,6 +254,7 @@ async function createBooking(req: Request, body: BookBody, session: ClientSessio
   );
   if (!appointment) throw new AppError("Appointment was not created");
   await reserveIfAllowance(req, quote, appointment, session);
+  await enqueueForMember(body.memberId, (account) => bookingCreated(account, appointment), session);
   await audit(req, "created", "Appointment", String(appointment._id), body.memberId, session);
   return { appointment, replayed: false };
 }
@@ -235,7 +267,11 @@ export async function bookAppointment(req: Request) {
   if (existing) return { appointment: existing, replayed: true };
   try {
     const result = await lockedTransaction(
-      [memberLock(body.memberId), providerLock(body.providerId)],
+      [
+        memberLock(body.memberId),
+        providerLock(body.providerId),
+        ...(await roomLocks(body.serviceId)),
+      ],
       (session) => createBooking(req, body, session)
     );
     if (!result.replayed)
@@ -278,6 +314,7 @@ export async function rescheduleAppointment(req: Request) {
     memberLock(initial.memberId),
     providerLock(initial.providerId),
     providerLock(providerId),
+    ...(await roomLocks(initial.serviceId)),
   ];
   const moved = await lockedTransaction([...new Set(keys)], async (session) => {
     const row = await Appointment.findById(initial._id).session(session);
@@ -287,37 +324,58 @@ export async function rescheduleAppointment(req: Request) {
         "INVALID_STATUS_TRANSITION"
       );
     const staffId = String(actor(req)._id);
-    // Released first so the re-quote sees this booking's own unit as available.
-    await ledger.settle({ appointmentId: row._id }, "released", staffId, "rescheduled", session);
+    // A booking Alfred priced and charged keeps Alfred's payment record: no re-quote, no allowance,
+    // no ledger. Only the slot is re-validated.
+    const external = Boolean(row.externalPayment);
+    if (!external)
+      // Released first so the re-quote sees this booking's own unit as available.
+      await ledger.settle({ appointmentId: row._id }, "released", staffId, "rescheduled", session);
     const input = {
       memberId: String(row.memberId),
       serviceId: String(row.serviceId),
       locationId: String(row.locationId),
       startAt: body.startAt,
-      deliveryMethod: body.deliveryMethod ?? row.deliveryMethod ?? STANDARD_DELIVERY,
+      deliveryMethod: external
+        ? (row.deliveryMethod ?? STANDARD_DELIVERY)
+        : (body.deliveryMethod ?? row.deliveryMethod ?? STANDARD_DELIVERY),
       episodeId: row.episodeId ? String(row.episodeId) : null,
       excludeAppointmentId: row._id,
     };
-    const quoted = await buildQuote(row.organizationId, input, session);
-    assertBookable(quoted.quote);
-    assertEpisodeComponent(quoted.quote, input.episodeId);
-    assertExpected(quoted.quote, body.expectedQuote);
+    const quoted = external ? undefined : await buildQuote(row.organizationId, input, session);
+    if (quoted) {
+      assertBookable(quoted.quote);
+      assertEpisodeComponent(quoted.quote, input.episodeId);
+      assertExpected(quoted.quote, body.expectedQuote);
+    }
     const endAt = await assertSlot(
-      quoted,
+      quoted ?? {
+        service: await bookableService(row.organizationId, input.serviceId),
+        location: await bookableLocation(row.organizationId, input.locationId),
+      },
       { ...input, organizationId: row.organizationId, providerId, excludeId: row._id },
       session
     );
+    const previousStartAt = row.startAt;
     row.set({
       startAt: body.startAt,
       endAt,
       providerId,
       deliveryMethod: input.deliveryMethod,
-      marketId: quoted.marketId,
-      price: priceOf(quoted.quote),
-      ...paymentFields(quoted.quote.finalCents),
+      ...(quoted
+        ? {
+            marketId: quoted.marketId,
+            price: priceOf(quoted.quote),
+            ...paymentFields(quoted.quote.finalCents),
+          }
+        : {}),
     });
     await row.save({ session });
-    await reserveIfAllowance(req, quoted.quote, row, session);
+    if (quoted) await reserveIfAllowance(req, quoted.quote, row, session);
+    await enqueueForMember(
+      row.memberId,
+      (account) => bookingRescheduled(account, row, previousStartAt),
+      session
+    );
     await audit(req, "rescheduled", "Appointment", String(row._id), String(row.memberId), session);
     return row;
   });

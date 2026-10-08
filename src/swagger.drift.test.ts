@@ -27,7 +27,12 @@ const documentedOperations = (spec: { paths?: Record<string, unknown> }): Set<st
 };
 
 describe("swagger spec vs mounted routes", () => {
-  const mounted = new Set(mountedRoutes(createServer()).map((r) => r.operation));
+  // The Alfred partner surface is its own document (Partner Contract v1), like Everhaus' /internal.
+  const mounted = new Set(
+    mountedRoutes(createServer())
+      .filter((r) => !r.chain.includes("alfredServiceAuth"))
+      .map((r) => r.operation)
+  );
   const documented = documentedOperations(swaggerSpec);
 
   it("documents every mounted route", () => {
