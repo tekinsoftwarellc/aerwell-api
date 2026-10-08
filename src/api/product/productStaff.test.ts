@@ -212,6 +212,7 @@ describe("catalog pull carries products", () => {
       true
     );
     const all = await org.get("/catalog?limit=200");
+    expect(all.status, all.text).toBe(200);
     const kinds = new Set(all.body.data.items.map((i: { kind: string }) => i.kind));
     expect([...kinds].sort()).toEqual(["products", "services"]);
     const personal = await alfredClient(app).get(`/catalog?kind=products&accountId=${ACCOUNT}`);
