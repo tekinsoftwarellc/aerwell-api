@@ -36,7 +36,11 @@ describe("GET /orders", () => {
       locationId: String(w.vegas._id),
       startAt: at(DAY, "14:00").toISOString(),
     });
-    expect(staffBooked.status).toBe(422);
+    expect(staffBooked.status).toBe(201);
+    expect(staffBooked.body.data.appointment.price).toMatchObject({
+      decision: "retail",
+      selection: { membershipId: null, planId: null },
+    });
     expect((await w.book("dexa-scan", "09:00")).status).toBe(201);
     const cancelled = await w.book("vo2-max-test", "10:00");
     await w.alfred.post(`/bookings/${cancelled.body.data.bookingRef}/cancel`, {});
@@ -64,7 +68,8 @@ describe("GET /orders", () => {
       seen.push(...res.body.data.items);
       cursor = res.body.data.nextCursor;
     } while (cursor);
-    expect(seen.map((i) => i.status).sort()).toEqual(["cancelled", "confirmed"]);
+    expect(seen.map((i) => i.status).sort()).toEqual(["cancelled", "confirmed", "confirmed"]);
+    expect(seen.map((i) => i.ref)).toContain(staffBooked.body.data.appointment._id);
     expect(seen.every((i) => i.accountId === ACCOUNT)).toBe(true);
     const stamps = seen.map((i) => Date.parse(i.updatedAt));
     expect(stamps).toEqual([...stamps].sort((a, b) => a - b));
