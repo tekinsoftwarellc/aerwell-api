@@ -1,32 +1,39 @@
 # Aerwell API
 
-Express 4 / TypeScript / Mongo scaffold. Node 22 or later. Staff authentication is standalone: local bcrypt credentials, Aerwell HS256 access tokens, opaque rotating refresh tokens, email verification and password recovery. Staff credentials issued by any other application are never accepted.
+Aerwell operational API for staff, services, appointments, visits, clinical workflows and partner fulfilment. Staff authentication is independent of Alfred.
+
+[Workspace docs](../../docs/README.md) · [Product behavior](../../docs/features/aerwell.md) · [Current work](../../docs/status.md)
+
+## Local development
+
+Use Node 22 or later (follow package/build requirements for the selected branch).
 
 ```sh
 npm ci
-NODE_ENV=development MONGODB_URI=mongodb://127.0.0.1:27017/aerwell npm run dev
+npm run dev
 ```
 
-The API defaults to port 3003 and allows `http://localhost:3200`. Configure a separate Aerwell database. `.env.example` lists names only; omit optional or defaulted settings rather than assigning blank strings. Production must set `NODE_ENV=production`, an explicit `CORS_ORIGIN`, and `MONGODB_URI` in the application's own `.env`.
+Configure required values before starting. Never commit runtime secrets or print `.env` content.
 
-Health routes: `/api/v1/health`, `/api/v1/health/live`, `/api/v1/health/ready`. Readiness returns 503 when Mongo is disconnected. Swagger UI is at `/api-docs/` outside production. Errors consistently return `{ success, status, code, message, data, statusCode }`.
+## Configuration and behavior
+
+Local defaults are port 3003 and Admin origin `http://localhost:3200`. Use a separate Aerwell database. `.env.example` and `src/config/env.ts` define settings; omit optional values rather than inserting blank strings. Keep `STAFF_JWT_SECRET` independent and at least 32 characters; set `AERWELL_ORG_ID`.
+
+Staff use bcrypt credentials, HS256 access tokens and rotating opaque refresh tokens. Authenticated requests verify current staff/session state; password change/reset revokes sessions. No Aerwell staff JWT is accepted by Alfred. SES verification/recovery needs `AWS_REGION`, `SES_FROM_EMAIL` and `ADMIN_BASE_URL`; missing required OTP delivery blocks login.
+
+Optional Alfred member/service integration uses `https://api-alfred.tekinsoftware.com` for `ALFRED_AUTH_URL` and `ALFRED_API_INTERNAL_URL`, plus its `/.well-known/jwks.json` for `ALFRED_AUTH_JWKS_URL`. Preserve service credentials, scopes, audiences and issuer `alfred-auth`. Keep disabled integration settings absent.
+
+Health endpoints are `/api/v1/health`, `/health/live`, `/health/ready`; readiness is 503 without Mongo. Swagger is `/api-docs/` outside production. The envelope contains `success`, `status`, `code`, `message`, `data`, `statusCode`.
+
+The development seed is explicitly local-only: it requires the documented `SEED_SUPER_ADMIN_*` inputs and `--confirm-local-seed`. It is never a deployment hook. Tests use isolated in-memory MongoDB. See [infra](infra/README.md) for deploy hooks and [current product](../../docs/features/aerwell.md) for capabilities.
+
+## Verification
 
 ```sh
-npm run typecheck && npm run lint && npm test && npm run build
-npm run test:coverage
-npm run smoke
+npm run typecheck
+npm run lint
+npm test
+npm run build
 ```
 
-Tests use isolated in-memory MongoDB processes and do not load `.env`. The smoke launches the compiled server against another memory Mongo, calls health with curl, and checks graceful shutdown. Test tooling requires downloading a MongoDB binary once.
-
-The development seed requires `AERWELL_ORG_ID` and all four `SEED_SUPER_ADMIN_*` variables named in `.env.example`. It creates local bcrypt credentials from `SEED_SUPER_ADMIN_PASSWORD`; no Alfred account is needed. Run `npm run seed:dev -- --confirm-local-seed` only against localhost MongoDB in a non-production environment. It inserts default roles, organization settings, a Las Vegas location, two environments and a supplied super admin. Re-running preserves existing edits and deactivated accounts. It is never run by deployment hooks.
-
-Deployment scaffolding uses `/home/ubuntu/aerwell-api`, PM2 `aerwell-api`, and port 3003. Hooks never source shell environment files. Configure the shared EC2 reverse proxy so it replaces forwarded client headers (Express trusts one proxy hop). Verify the existing EC2 CodeDeploy tag (see `infra/`) before deploying the CloudFormation stack; this default is inherited from the sibling template, not verified against AWS. Atlas, DNS/reverse proxy routing, CodeStar connection, and pipeline creation require separate setup and approval. No production service is configured or deployed by this repository's local scaffold.
-
-Direct package versions match the sibling API's `package-lock.json`; this includes TypeScript 5.9.3 (the plan's prose referred to 5.6). `@vitest/coverage-v8` 4.0.18 is added to match Vitest because the sibling lock omits a coverage provider. Cache is memory-only and reserved for infrastructure counters and tokens; never cache PHI.
-
-Staff authentication requires an independent `STAFF_JWT_SECRET` of at least 32 characters and `AERWELL_ORG_ID`. Generate and store the secret outside source control. Never reuse another application's secrets. Missing authentication configuration returns 503; there is no fallback key. Email verification and recovery require `AWS_REGION`, `SES_FROM_EMAIL` and `ADMIN_BASE_URL`; no external email is sent by tests. Recovery always returns a generic acceptance response, including when delivery is unconfigured. The login endpoint fails closed if required OTP delivery is unavailable.
-
-The optional Alfred member/service integration uses the merged Alfred API. When enabling it, retain `ALFRED_AUTH_URL=https://api-alfred.tekinsoftware.com`, `ALFRED_AUTH_JWKS_URL=https://api-alfred.tekinsoftware.com/.well-known/jwks.json`, and `ALFRED_API_INTERNAL_URL=https://api-alfred.tekinsoftware.com` (origin only), with the existing client credentials, scopes, audiences, and `alfred-auth` issuer. Keep these settings absent while the integration is disabled. Confirm readiness and OAuth/JWKS verification on the merged backend before updating runtime configuration. Aerwell staff login and Aerwell Admin continue to use their local API.
-
-Local routes: `POST /api/v1/auth/login`, `/refresh`, `/logout`, `/2fa/verify`, `/forgot-password`, `/reset-password`, `/change-password`. `GET /api/v1/me`, `/me/counters`, `/permissions/modules` require a local active session. Access tokens live 15 minutes; sessions expire after 30 days. Refresh rotates atomically; reusing an old refresh token revokes its session. Every authenticated request checks current staff status, credential version and session revocation. Password change/reset revokes every session. No local JWT is accepted by Alfred; future Alfred member-service calls use separate service credentials.
+Run the exact relevant buildspec gates before release. Current checkouts may lag the recorded dev ref; verify branch and dirty state first. Runtime deployment and external acceptance are tracked separately in [current work](../../docs/status.md).

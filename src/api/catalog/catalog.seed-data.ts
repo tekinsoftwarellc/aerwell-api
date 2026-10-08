@@ -1,4 +1,4 @@
-// Initial client catalog (CLIENT-CATALOG-ENTITLEMENTS-2026-09-26.md). This is
+// Initial client catalog (docs/features/aerwell.md). This is
 // SEED DATA only: every value is editable through the API/admin afterwards and
 // no booking logic reads these constants.
 import type {
