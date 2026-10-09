@@ -10,14 +10,14 @@ import { assertSlot, lockedTransaction, roomLocks } from "../appointment/booking
 import { memberLock, providerLock } from "../appointment/ledger.service.js";
 import { audit } from "../audit/audit.js";
 import { Location } from "../location/location.model.js";
-import { appointmentChanged } from "../notification/producers.js";
+import { ALFRED_APP_ACTOR, appointmentChanged } from "../notification/producers.js";
 import { Service } from "../service/service.model.js";
 import { assertReviewOrder } from "./partner.bookings.service.js";
 import { externalOf } from "./partner.bookings.view.js";
 import { contractConflict, remapBookingError } from "./partner.errors.js";
 import { decodeSlotRef } from "./slotRef.js";
 
-const PARTNER_ACTOR = "partner:alfred-api";
+const PARTNER_ACTOR = ALFRED_APP_ACTOR;
 const HOUR = 3_600_000;
 const CHECK_IN_LEAD_MS = 60 * 60_000;
 const DEFAULT_WINDOW_HOURS = 24;

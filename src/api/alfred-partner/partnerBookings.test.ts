@@ -15,8 +15,10 @@ import { AllowanceLedgerEntry, Appointment } from "../appointment/appointment.mo
 import { AuditEvent } from "../audit/audit.js";
 import { Environment } from "../location/location.model.js";
 import { MemberMembership } from "../member/member.model.js";
+import { Notification } from "../notification/notification.model.js";
 import { Service } from "../service/service.model.js";
 import { StaffMember } from "../staff/staff.model.js";
+import { displayRefOf } from "./partner.bookings.view.js";
 import { PartnerIdempotencyKey } from "./partnerIdempotency.model.js";
 import { encodeSlotRef } from "./slotRef.js";
 
@@ -52,6 +54,9 @@ describe("POST /bookings", () => {
       payment: { status: "paid", amountCents: 17500, currency: "usd" },
       summary: { title: "DEXA Scan", locationName: "Aerwell Las Vegas", staffName: "Dr. Diebel" },
     });
+    // The member-facing ref: human-shaped, and stable for the same appointment on every read.
+    expect(res.body.data.summary.displayRef).toMatch(/^B-[A-Z2-9]{6}$/);
+    expect(res.body.data.summary.displayRef).toBe(displayRefOf(res.body.data.bookingRef));
     const row = await Appointment.findById(res.body.data.bookingRef).lean();
     expect(row).toMatchObject({
       bookingSource: "alfred_app",
@@ -400,5 +405,24 @@ describe("POST /bookings", () => {
         400
       );
     expect(randomUUID()).toBeTruthy();
+  });
+});
+
+describe("POST /bookings — staff are told", () => {
+  it("notifies the provider AND everyone who sees all appointments, since no front desk was involved", async () => {
+    const w = await partnerWorld();
+    const slot = await w.slotAt("dexa-scan", "09:00");
+    const res = await w.alfred.post(
+      "/bookings",
+      w.bodyFor("dexa-scan", slot, { payment: { ...PAID } }),
+      "book:notify:1"
+    );
+    expect(res.status).toBe(201);
+    const recipients = (await Notification.find({ kind: "appointment_booked" }).lean()).map((n) =>
+      String(n.recipientStaffId)
+    );
+    expect(recipients).toEqual(
+      expect.arrayContaining([String(w.provider.staff._id), String(w.director.staff._id)])
+    );
   });
 });

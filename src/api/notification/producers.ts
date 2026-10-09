@@ -96,6 +96,9 @@ interface AppointmentRow {
   timeZone: string;
 }
 /** To the provider(s) only; the title names the service and time, never the member. */
+/** The actor Alfred-app bookings, cancellations and reschedules are recorded under. */
+export const ALFRED_APP_ACTOR = "partner:alfred-api";
+
 async function appointmentChangedNotice(
   kind: keyof typeof VERBS,
   row: AppointmentRow,
@@ -111,6 +114,9 @@ async function appointmentChangedNotice(
     link: "/appointments",
     actorId,
     staffIds: providerIds,
+    // A member acting in the Alfred app has no front desk in the loop: everyone who sees all
+    // appointments hears about it, not just the provider.
+    ...(String(actorId) === ALFRED_APP_ACTOR ? { audience: grant("APPOINTMENTS", "view") } : {}),
     requires: [grant("APPOINTMENTS", "view")],
   });
 }

@@ -15,7 +15,7 @@ import { audit } from "../audit/audit.js";
 import { DeliveryModifier, Market } from "../catalog/catalog.model.js";
 import { STANDARD_DELIVERY } from "../entitlement/entitlement.types.js";
 import { Location } from "../location/location.model.js";
-import { appointmentChanged } from "../notification/producers.js";
+import { ALFRED_APP_ACTOR, appointmentChanged } from "../notification/producers.js";
 import { Service } from "../service/service.model.js";
 import { StaffMember } from "../staff/staff.model.js";
 import { loadCatalogContext, offeredLocations } from "./catalogItem.js";
@@ -25,7 +25,7 @@ import type { bookingBody } from "./partner.schema.js";
 import { decodeSlotRef } from "./slotRef.js";
 
 export type BookingBody = z.output<typeof bookingBody>;
-const PARTNER_ACTOR = "partner:alfred-api";
+const PARTNER_ACTOR = ALFRED_APP_ACTOR;
 /** The clinician review comes after the other assessment components (Q6). */
 export const REVIEW_SLUG = "assessment-clinician-review";
 const isDuplicate = (error: unknown) => (error as { code?: number }).code === 11000;

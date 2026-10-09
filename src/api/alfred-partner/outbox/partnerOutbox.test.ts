@@ -70,7 +70,12 @@ describe("events the outbox writes for staff changes", () => {
       locationRef: String(w.vegas._id),
       staff: { ref: String(w.provider.staff._id), name: "Dr. Diebel", role: expect.any(String) },
       payment: { status: "none", amountCents: 0, currency: "usd" },
-      summary: { title: "DEXA Scan", locationName: "Aerwell Las Vegas", staffName: "Dr. Diebel" },
+      summary: {
+        displayRef: expect.stringMatching(/^B-[A-Z2-9]{6}$/),
+        title: "DEXA Scan",
+        locationName: "Aerwell Las Vegas",
+        staffName: "Dr. Diebel",
+      },
       tags: ["physical", "lab"],
     });
     const text = JSON.stringify(row);
