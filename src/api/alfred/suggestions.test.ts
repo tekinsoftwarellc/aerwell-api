@@ -95,6 +95,7 @@ it("member suggestions: the model sees only what the staff member can read; draf
   ]);
   expect(JSON.stringify(model.requests[0])).toContain(w.panelId);
   expect(model.requests[0]?.outputConfig).toBeDefined();
+  expect(model.requests[0]?.inferenceConfig).not.toHaveProperty("temperature");
   expect(await MemberNote.countDocuments()).toBe(0);
   expect(await MemberFlag.countDocuments()).toBe(0);
   expect(await Appointment.countDocuments()).toBe(0);

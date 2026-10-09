@@ -93,7 +93,7 @@ export function nextStepsRequest(modelId: string, input: NextStepInput): Convers
     modelId,
     system: [{ text: SYSTEM_PROMPT }],
     messages: [{ role: "user", content: [{ text: JSON.stringify(input) }] }],
-    inferenceConfig: { temperature: 0, maxTokens: 2_048 },
+    inferenceConfig: { maxTokens: 2_048 },
     outputConfig: {
       textFormat: {
         type: "json_schema",

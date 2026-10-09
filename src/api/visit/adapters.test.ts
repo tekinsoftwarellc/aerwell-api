@@ -186,9 +186,10 @@ it("Bedrock requests structured output on the configured model and hides provide
   });
   expect(command?.input).toMatchObject({
     modelId: "us.anthropic.claude-haiku-4-5",
-    inferenceConfig: { temperature: 0 },
     outputConfig: { textFormat: { type: "json_schema" } },
   });
+  // Haiku 5.5 / Sonnet 5.x reject `temperature` with ValidationException.
+  expect(command?.input.inferenceConfig).not.toHaveProperty("temperature");
   const denied = new BedrockNextStepGenerator(
     {
       send: async () => {

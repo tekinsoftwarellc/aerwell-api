@@ -189,7 +189,7 @@ export async function generateSuggestions(req: Request, cache: CacheService) {
           ],
         },
       ],
-      inferenceConfig: { temperature: 0, maxTokens: 1_500 },
+      inferenceConfig: { maxTokens: 1_500 },
       outputConfig: {
         textFormat: {
           type: "json_schema",
