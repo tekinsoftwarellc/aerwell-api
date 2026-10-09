@@ -112,6 +112,7 @@ describe("membership records", () => {
       firstName: "With",
       lastName: "Plan",
       email: "with-plan@example.invalid",
+      phone: "555-0101",
       memberships: [{ planId: plan["aerwell-continuum"], startedAt: "2026-02-01T00:00:00.000Z" }],
     });
     expect(res.status).toBe(201);
@@ -122,6 +123,7 @@ describe("membership records", () => {
       firstName: "Bad",
       lastName: "Plan",
       email: "bad-plan@example.invalid",
+      phone: "555-0101",
       memberships: [{ planId: String(legacy._id) }],
     });
     expect(bad.status).toBe(422);

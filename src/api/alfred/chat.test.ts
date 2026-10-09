@@ -66,6 +66,8 @@ it("answers with tools run as the staff member; history is visible text only, ne
   expect(JSON.stringify(panel)).toContain(String(LAB_SENTINEL));
   expect(model.requests[0]?.toolConfig?.tools?.length).toBeGreaterThan(10);
   expect(JSON.stringify(model.requests[0]?.system)).toContain("Alfred AI");
+  // Sonnet 5 (the SMART tier) rejects `temperature` with ValidationException.
+  expect(model.requests[0]?.inferenceConfig).not.toHaveProperty("temperature");
 
   const history = await api.get(`/api/v1/alfred/conversations/${id}/messages`);
   const body = JSON.stringify(history.body);

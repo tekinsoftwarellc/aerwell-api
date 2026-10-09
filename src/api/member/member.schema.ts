@@ -34,6 +34,8 @@ const personal = {
 export const memberCreate = z
   .object({
     ...personal,
+    // Alfred is phone-first, so a staff-created member needs one.
+    phone: text(40).min(1),
     intakeNote: text(4000).optional(),
     memberships: z
       .array(z.object({ planId: objectId, startedAt: z.coerce.date().optional() }).strict())

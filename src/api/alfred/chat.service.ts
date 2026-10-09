@@ -161,7 +161,7 @@ async function runLoop(model: AlfredModel, system: string, messages: Message[], 
       system: [{ text: system }],
       messages: convo,
       toolConfig: toolConfig(),
-      inferenceConfig: { maxTokens: 1_500, temperature: 0.2 },
+      inferenceConfig: { maxTokens: 1_500 },
     });
     usage.inputTokens += turn.usage.inputTokens;
     usage.outputTokens += turn.usage.outputTokens;

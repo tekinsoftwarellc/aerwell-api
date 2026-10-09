@@ -24,7 +24,7 @@ import type { MemberQuery } from "./member.schema.js";
 import { isOwnScope, memberScope, memberTarget, permissionsOf } from "./member.scope.js";
 import { brandLabels, holdMembership } from "./membership.service.js";
 
-const LIST_FIELDS = "firstName lastName email status lastVisitAt photoUploadId archivedAt";
+const LIST_FIELDS = "firstName lastName email phone status lastVisitAt photoUploadId archivedAt";
 const FLAG_FILTER_CATEGORY = {
   on_waitlist: "waitlist",
   outstanding_balance: "outstanding_balance",

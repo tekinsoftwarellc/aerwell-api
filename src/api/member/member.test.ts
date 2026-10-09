@@ -64,6 +64,9 @@ describe("create member", () => {
     for (const extra of [{ alfredAccountId: "acct-1" }, { password: "x" }, { status: "active" }])
       expect((await admin.send("post", "/members", { ...person, ...extra })).status).toBe(400);
     expect((await admin.send("post", "/members", { email: "a@example.invalid" })).status).toBe(400);
+    const { phone: _phone, ...noPhone } = person;
+    expect((await admin.send("post", "/members", noPhone)).status).toBe(400);
+    expect((await admin.send("post", "/members", { ...person, phone: "  " })).status).toBe(400);
   });
   it("requires MEMBER_RECORDS edit to create and view to list", async () => {
     const viewer = client(app, (await staffWith({ MEMBER_RECORDS: "view" })).accessToken);
@@ -102,6 +105,7 @@ describe("member list", () => {
       lastName: "Ashton",
       status: "active",
       email: "shannon@example.invalid",
+      phone: "+15550100",
     });
     await memberRow({
       firstName: "Phil",
@@ -136,6 +140,7 @@ describe("member list", () => {
   it("filters by search, status and flags on both sides, with filtered totals", async () => {
     const search = await admin.get("/members?q=shannon");
     expect(names(search)).toEqual(["Ashton"]);
+    expect(search.body.data.items[0].phone).toBe("+15550100");
     expect(search.body.data.pagination.total).toBe(1);
     expect(names(await admin.get("/members?q=zzz-none"))).toEqual([]);
     const status = await admin.get("/members?status[]=active&status[]=pending_onboarding");
