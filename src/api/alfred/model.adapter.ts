@@ -11,8 +11,9 @@ import { env } from "../../config/env.js";
  * Alfred AI's model seam: Amazon Bedrock Converse only (AWS, BAA), through the
  * `us.` inference profiles in BEDROCK_MODEL_FAST / BEDROCK_MODEL_SMART (the env
  * schema refuses any other id). Chat with tools runs on SMART; structured
- * suggestions run on FAST because Sonnet 5 rejects Converse `outputConfig`
- * (recorded real-AWS fact, 2026-09-25). Tests replace the model with a scripted fake.
+ * suggestions run on FAST (Sonnet 5 rejected Converse `outputConfig` on 2026-09-25;
+ * Sonnet 5.5 accepts it, 2026-10-09). Sonnet 5.x and Haiku 5.5 reject `temperature`,
+ * so no request sets it. Tests replace the model with a scripted fake.
  */
 export type AlfredTier = "fast" | "smart";
 export type ConverseRequest = Omit<ConverseCommandInput, "modelId">;
