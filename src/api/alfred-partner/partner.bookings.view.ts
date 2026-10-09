@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { AppointmentData } from "../appointment/appointment.model.js";
 import { providerName } from "../appointment/availability.service.js";
 import { Location } from "../location/location.model.js";
@@ -79,7 +80,25 @@ export async function loadRefs(rows: Row[]) {
 }
 export type Refs = Awaited<ReturnType<typeof loadRefs>>;
 
+// Excludes ambiguous characters: O/0, I/1, L (the alphabet Everhaus uses for its refs).
+const REF_CHARSET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+
+/**
+ * The human booking reference members see (`summary.displayRef`), e.g. `B-7KQ2MX`. Derived
+ * from the appointment id, so it is stable on every read and needs no stored field or
+ * backfill; `bookingRef` stays the id, which is what Alfred stores and calls back with.
+ * ponytail: ~887M codes, so two appointments can share one; Alfred looks refs up per member,
+ * where that is negligible. Store a unique ref if staff ever need to search by it.
+ */
+export function displayRefOf(id: unknown): string {
+  const bytes = createHash("sha256").update(String(id)).digest();
+  let ref = "B-";
+  for (let i = 0; i < 6; i++) ref += REF_CHARSET[(bytes[i] ?? 0) % REF_CHARSET.length];
+  return ref;
+}
+
 const summaryOf = (row: Row, refs: Refs) => ({
+  displayRef: displayRefOf(row._id),
   title: refs.service.get(String(row.serviceId))?.title ?? "Appointment",
   locationName: refs.location.get(String(row.locationId))?.name ?? "",
   staffName: refs.staff.get(String(row.providerId))?.name ?? "",

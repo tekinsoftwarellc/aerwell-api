@@ -89,7 +89,11 @@ describe("GET /orders", () => {
       itemRef: "dexa-scan",
       locationRef: String(w.vegas._id),
       payment: { status: "paid", amountCents: 17500, currency: "usd" },
-      summary: { title: "DEXA Scan", locationName: "Aerwell Las Vegas" },
+      summary: {
+        displayRef: expect.stringMatching(/^B-/),
+        title: "DEXA Scan",
+        locationName: "Aerwell Las Vegas",
+      },
     });
     const stamp = res.body.data.items[0].updatedAt;
     expect((await orgPull().get(`/orders?updatedSince=${stamp}`)).body.data.items).toHaveLength(1);
