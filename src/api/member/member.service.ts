@@ -198,6 +198,8 @@ export async function createMember(req: Request) {
         [
           {
             ...fields,
+            // Staff entering a patient is the onboarding; nothing would ever flip it later.
+            status: "active",
             organizationId: staff.organizationId,
             photoUploadId: photo?._id,
             createdById: staff._id,

@@ -31,11 +31,11 @@ const names = (res: { body: { data: { items: { lastName: string }[] } } }) =>
   res.body.data.items.map((m) => m.lastName);
 
 describe("create member", () => {
-  it("creates a pending clinical record without credentials or an Alfred link, and audits it", async () => {
+  it("creates an active clinical record without credentials or an Alfred link, and audits it", async () => {
     const credentialsBefore = await StaffCredential.countDocuments();
     const res = await admin.send("post", "/members", { ...person, intakeNote: "Referral" });
     expect(res.status).toBe(201);
-    expect(res.body.data.status).toBe("pending_onboarding");
+    expect(res.body.data.status).toBe("active");
     expect(res.body.data.email).toBe("synthetic.person@example.invalid");
     expect(res.body.data.alfredLink).toEqual({ status: "unlinked", configured: false });
     const row = await Member.findById(res.body.data._id).lean();

@@ -27,7 +27,7 @@ const ops: Spec[] = [
   [
     "post",
     "/members",
-    "Create a clinical member record, pending_onboarding (MEMBER_RECORDS edit). No credentials are minted; optional memberships[]. Audited.",
+    "Create a clinical member record, active (MEMBER_RECORDS edit). No credentials are minted; optional memberships[]. Audited.",
   ],
   [
     "get",
