@@ -22,9 +22,7 @@ export const planGrantStats = { skippedNoAccount: 0 };
  * Snapshot of one staff membership change as an Alfred plan grant, or null when there is nothing
  * to send. Grants are open-ended and a cancel ends Alfred benefits at once, so periodEnd is never sent.
  */
-export const buildPlanGrant = async (
-  m: MembershipLike
-): Promise<PlanGrantBody | null> => {
+export const buildPlanGrant = async (m: MembershipLike): Promise<PlanGrantBody | null> => {
   const [plan, member] = await Promise.all([
     MembershipPlan.findOne({ _id: m.planId, organizationId: m.organizationId })
       .select("slug priceCents")
