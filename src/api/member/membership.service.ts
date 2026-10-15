@@ -241,10 +241,18 @@ export async function patchMembership(req: Request) {
       if (changes.endsAt && changes.endsAt <= row.startedAt)
         throw new ValidationError("End must be after start", "INVALID_MEMBERSHIP_DATES");
       const wasCancelled = row.status === "cancelled";
+      const sameEnd = (a?: Date | null, b?: Date | null) =>
+        (a?.getTime() ?? null) === (b?.getTime() ?? null);
+      // Only a real change of status or end date is a staff grant change; auto-renew edits are not.
+      const material =
+        (changes.status !== undefined && changes.status !== row.status) ||
+        ("endsAt" in changes && !sameEnd(changes.endsAt, row.endsAt));
       // Ending, pausing or re-dating a plan the member pays for by card must happen in Alfred.
       if (("status" in changes && changes.status !== row.status) || "endsAt" in changes)
         await refuseOverPaidSubscription(member, session);
       row.set(changes);
+      // Staff now own this row: it is no longer a mirror of Alfred.
+      if (material) row.source = "staff";
       if (changes.status === "cancelled" && !row.cancelledAt) row.cancelledAt = new Date();
       // A period change or a reactivation must not create a same-plan overlap.
       if (row.status !== "cancelled" && ("endsAt" in changes || "status" in changes))
@@ -260,7 +268,7 @@ export async function patchMembership(req: Request) {
         );
       await row.save({ session });
       await audit(req, "updated", "MemberMembership", String(row._id), String(member._id), session);
-      if (!wasCancelled) await enqueuePlanGrant(row, session);
+      if (material && !wasCancelled) await enqueuePlanGrant(row, session);
       return row;
     });
   } catch (error) {

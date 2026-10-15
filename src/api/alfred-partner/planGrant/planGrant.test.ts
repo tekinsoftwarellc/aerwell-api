@@ -173,6 +173,56 @@ describe("review fixes", () => {
   });
 });
 
+describe("material changes only", () => {
+  const alfredRow = () =>
+    MemberMembership.create({
+      organizationId: ORG,
+      memberId: member._id,
+      planId: plan["aerwell-continuum"],
+      startedAt: new Date("2026-01-01"),
+      endsAt: new Date("2031-01-01"),
+      source: "alfred",
+    });
+  it("does not push or take ownership on an auto-renew or same-value edit", async () => {
+    const row = await alfredRow();
+    const url = `${base()}/${row._id}`;
+    expect((await admin.send("patch", url, { autoRenew: false })).status).toBe(200);
+    expect((await admin.send("patch", url, { endsAt: "2031-01-01T00:00:00.000Z" })).status).toBe(
+      200
+    );
+    expect(await PlanGrantOutbox.countDocuments()).toBe(0);
+    expect((await MemberMembership.findById(row._id).lean())?.source).toBe("alfred");
+  });
+  it("pushes and marks the row staff when status or end date really changes", async () => {
+    const row = await alfredRow();
+    const url = `${base()}/${row._id}`;
+    expect((await admin.send("patch", url, { status: "paused" })).status).toBe(200);
+    expect(await PlanGrantOutbox.countDocuments()).toBe(1);
+    expect((await MemberMembership.findById(row._id).lean())?.source).toBe("staff");
+  });
+  it("marks the row staff when only the end date changes", async () => {
+    const row = await alfredRow();
+    await admin.send("patch", `${base()}/${row._id}`, { endsAt: "2032-01-01T00:00:00.000Z" });
+    expect((await MemberMembership.findById(row._id).lean())?.source).toBe("staff");
+    expect(await PlanGrantOutbox.countDocuments()).toBe(1);
+  });
+  it("cancel sends no periodEnd unless endsAt is in the future", async () => {
+    const past = await hold("aerwell-essential", {
+      endsAt: "2020-01-01T00:00:00.000Z",
+      startedAt: "2019-01-01T00:00:00.000Z",
+    });
+    await admin.send("patch", `${base()}/${past.body.data._id}`, { status: "cancelled" });
+    const cancels = (await queued()).filter(
+      (r) => (r.body as { status: string }).status === "cancelled"
+    );
+    expect((cancels[0]?.body as { periodEnd: unknown }).periodEnd).toBeNull();
+    const future = await hold("aerwell-continuum", { endsAt: "2031-01-01T00:00:00.000Z" });
+    await admin.send("patch", `${base()}/${future.body.data._id}`, { status: "cancelled" });
+    const last = (await queued()).at(-1)?.body as { status: string; periodEnd: string };
+    expect(last).toMatchObject({ status: "cancelled", periodEnd: "2031-01-01T00:00:00.000Z" });
+  });
+});
+
 describe("inbound setMembership", () => {
   afterEach(removeAlfredKeys);
   const push = (body: Record<string, unknown>) =>
