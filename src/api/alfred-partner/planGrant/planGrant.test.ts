@@ -105,6 +105,74 @@ describe("Stripe refusal", () => {
   });
 });
 
+describe("review fixes", () => {
+  const stripe = (extra: Record<string, unknown> = {}) =>
+    Member.updateOne(
+      { _id: member._id },
+      {
+        alfredMembership: {
+          tierKey: "aerwell-continuum",
+          status: "active",
+          source: "stripe",
+          updatedAt: new Date(),
+          ...extra,
+        },
+      }
+    );
+  it("refuses pause, cancel and end-date changes over a card subscription, allows auto-renew", async () => {
+    await MemberMembership.create({
+      organizationId: ORG,
+      memberId: member._id,
+      planId: plan["aerwell-continuum"],
+      startedAt: new Date("2026-01-01"),
+      source: "alfred",
+    });
+    const row = await MemberMembership.findOne().lean();
+    await stripe();
+    const url = `${base()}/${row?._id}`;
+    for (const body of [
+      { status: "paused" },
+      { status: "cancelled" },
+      { endsAt: "2030-01-01T00:00:00.000Z" },
+    ]) {
+      const res = await admin.send("patch", url, body);
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe("PLAN_PAID_SUBSCRIPTION_ACTIVE");
+    }
+    expect((await admin.send("patch", url, { autoRenew: false })).status).toBe(200);
+    expect((await MemberMembership.findOne().lean())?.status).toBe("active");
+  });
+  it("treats a past validUntil as not active", async () => {
+    await stripe({ validUntil: new Date("2020-01-01") });
+    expect((await hold("aerwell-essential")).status).toBe(201);
+  });
+  it("does not enqueue when the row was already cancelled", async () => {
+    const created = await hold("aerwell-essential");
+    const url = `${base()}/${created.body.data._id}`;
+    await admin.send("patch", url, { status: "cancelled" });
+    expect(await PlanGrantOutbox.countDocuments()).toBe(2);
+    await admin.send("patch", url, { autoRenew: false });
+    expect(await PlanGrantOutbox.countDocuments()).toBe(2);
+  });
+  it("rolls the membership back when the outbox row cannot be written", async () => {
+    vi.spyOn(PlanGrantOutbox, "updateOne").mockRejectedValueOnce(new Error("boom"));
+    expect((await hold("aerwell-essential")).status).toBe(500);
+    expect(await MemberMembership.countDocuments()).toBe(0);
+    vi.restoreAllMocks();
+  });
+  it("rejects more than one plan when creating a member", async () => {
+    const res = await admin.send("post", "/members", {
+      firstName: "Two",
+      lastName: "Plans",
+      email: "two-plans@example.invalid",
+      phone: "555-0101",
+      memberships: [{ planId: plan["aerwell-essential"] }, { planId: plan["aerwell-continuum"] }],
+    });
+    expect(res.status).toBe(400);
+    expect(await Member.countDocuments({ email: "two-plans@example.invalid" })).toBe(0);
+  });
+});
+
 describe("inbound setMembership", () => {
   afterEach(removeAlfredKeys);
   const push = (body: Record<string, unknown>) =>

@@ -39,7 +39,7 @@ export const memberCreate = z
     intakeNote: text(4000).optional(),
     memberships: z
       .array(z.object({ planId: objectId, startedAt: z.coerce.date().optional() }).strict())
-      .max(5)
+      .max(1, "A new member can start with one plan; add others afterwards")
       .default([]),
   })
   .strict();

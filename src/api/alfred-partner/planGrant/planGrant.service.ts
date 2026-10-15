@@ -1,3 +1,4 @@
+import type { ClientSession } from "mongoose";
 import { logger } from "../../../common/utils/logger.js";
 import { env } from "../../../config/env.js";
 import { MembershipPlan } from "../../catalog/catalog.model.js";
@@ -57,26 +58,30 @@ export const buildPlanGrant = async (
 };
 
 /**
- * Record one staff membership change for Alfred. No-op until ALFRED_PLAN_GRANTS_ENABLED.
- * NEVER THROWS: a sync problem must not fail the staff write; delivery is retried from Mongo.
+ * Record one staff membership change for Alfred, inside the caller's transaction so the change
+ * and its outbox row commit or roll back together. No-op until ALFRED_PLAN_GRANTS_ENABLED.
+ * Upsert on eventId (a duplicate key would abort the transaction); delivery retries from Mongo.
  * Rows that came from Alfred (`source: "alfred"`) are never passed here (echo rule).
  */
 export const enqueuePlanGrant = async (
-  m: MembershipLike
+  m: MembershipLike,
+  session: ClientSession
 ): Promise<"queued" | "duplicate" | "skipped"> => {
   if (env.ALFRED_PLAN_GRANTS_ENABLED !== "true") return "skipped";
-  try {
-    const body = await buildPlanGrant(m);
-    if (!body) return "skipped";
-    try {
-      await PlanGrantOutbox.create({ eventId: body.eventId, body });
-      return "queued";
-    } catch (err) {
-      if ((err as { code?: number }).code === 11000) return "duplicate";
-      throw err;
-    }
-  } catch (err) {
-    logger.error({ err, membershipId: String(m._id) }, "plan grant enqueue failed");
-    return "skipped";
-  }
+  const body = await buildPlanGrant(m);
+  if (!body) return "skipped";
+  const res = await PlanGrantOutbox.updateOne(
+    { eventId: body.eventId },
+    {
+      $setOnInsert: {
+        eventId: body.eventId,
+        body,
+        status: "pending",
+        attempts: 0,
+        nextAttemptAt: new Date(),
+      },
+    },
+    { upsert: true, session }
+  );
+  return res.upsertedCount ? "queued" : "duplicate";
 };

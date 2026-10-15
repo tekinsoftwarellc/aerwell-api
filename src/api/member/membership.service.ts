@@ -103,9 +103,11 @@ async function lockAndAssertNoOverlap(
 }
 
 /** A member who pays for a plan by card in Alfred cannot be given one by staff (cancel it there first). */
-async function refuseOverPaidSubscription(member: MemberDocument, session: ClientSession) {
+export async function refuseOverPaidSubscription(member: MemberDocument, session: ClientSession) {
   const held = member.alfredMembership;
   if (held?.source !== "stripe" || held.status !== "active" || held.tierKey === "bundled") return;
+  // A past validUntil means the card plan has lapsed.
+  if (held.validUntil && held.validUntil <= new Date()) return;
   const paid = await MembershipPlan.findOne({
     organizationId: member.organizationId,
     slug: held.tierKey,
@@ -162,16 +164,15 @@ export async function holdMembership(
   );
   if (!row) throw new AppError("Membership was not created");
   await audit(req, "created", "MemberMembership", String(row._id), String(member._id), session);
+  await enqueuePlanGrant(row, session);
   return row;
 }
 
 export async function createMembership(req: Request) {
   const member = await memberTarget(req, { write: true });
-  const row = await mongoose.connection.transaction((session) =>
+  return mongoose.connection.transaction((session) =>
     holdMembership(req, member, req.body, session)
   );
-  await enqueuePlanGrant(row);
-  return row;
 }
 
 export async function listMemberships(req: Request) {
@@ -216,7 +217,7 @@ export async function patchMembership(req: Request) {
     autoRenew?: boolean;
   };
   try {
-    const saved = await mongoose.connection.transaction(async (session) => {
+    return await mongoose.connection.transaction(async (session) => {
       const row = await MemberMembership.findOne({
         _id: req.params["membershipId"],
         organizationId: member.organizationId,
@@ -239,6 +240,10 @@ export async function patchMembership(req: Request) {
         );
       if (changes.endsAt && changes.endsAt <= row.startedAt)
         throw new ValidationError("End must be after start", "INVALID_MEMBERSHIP_DATES");
+      const wasCancelled = row.status === "cancelled";
+      // Ending, pausing or re-dating a plan the member pays for by card must happen in Alfred.
+      if (("status" in changes && changes.status !== row.status) || "endsAt" in changes)
+        await refuseOverPaidSubscription(member, session);
       row.set(changes);
       if (changes.status === "cancelled" && !row.cancelledAt) row.cancelledAt = new Date();
       // A period change or a reactivation must not create a same-plan overlap.
@@ -255,10 +260,9 @@ export async function patchMembership(req: Request) {
         );
       await row.save({ session });
       await audit(req, "updated", "MemberMembership", String(row._id), String(member._id), session);
+      if (!wasCancelled) await enqueuePlanGrant(row, session);
       return row;
     });
-    await enqueuePlanGrant(saved);
-    return saved;
   } catch (error) {
     if ((error as Error).name === "VersionError") throw versionConflict();
     throw error;
