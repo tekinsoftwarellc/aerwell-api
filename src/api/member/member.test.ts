@@ -64,7 +64,7 @@ describe("create member", () => {
     for (const extra of [{ alfredAccountId: "acct-1" }, { password: "x" }, { status: "active" }])
       expect((await admin.send("post", "/members", { ...person, ...extra })).status).toBe(400);
     expect((await admin.send("post", "/members", { email: "a@example.invalid" })).status).toBe(400);
-    const { phone: _phone, ...noPhone } = person;
+    const { phone: Phone, ...noPhone } = person;
     expect((await admin.send("post", "/members", noPhone)).status).toBe(400);
     expect((await admin.send("post", "/members", { ...person, phone: "  " })).status).toBe(400);
   });

@@ -23,6 +23,8 @@ export const envObject = z.object({
   ALFRED_PARTNER_ORG_ID: z.string().min(1).optional(),
   // Public Alfred host the outbox pushes events to (ALFRED_API_INTERNAL_URL is /internal only).
   ALFRED_API_URL: z.string().url().optional(),
+  // Push staff plan changes to Alfred (/internal/plan-grants). Off until Alfred ships and the partner token is set.
+  ALFRED_PLAN_GRANTS_ENABLED: z.enum(["true", "false"]).default("false"),
   PARTNER_OUTBOX_ENABLED: z.enum(["true", "false"]).optional(),
   PARTNER_OUTBOX_INTERVAL_MS: z.coerce.number().int().min(1000).default(5000),
   PARTNER_OUTBOX_BATCH_SIZE: z.coerce.number().int().min(1).max(200).default(50),

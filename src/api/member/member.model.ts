@@ -41,14 +41,16 @@ const memberSchema = new Schema(
     alfredAccountId: { type: String, default: undefined },
     // Set when Alfred reports `member.deleted`. The clinical record is never deleted.
     alfredUnlinkedAt: { type: Date, default: null },
-    // RECORD ONLY: the membership Alfred last reported (contract §5.2). Never read by the
-    // entitlement evaluator and never creates a MemberMembership, ledger or plan row.
+    // The membership Alfred last reported (contract §5.2). Never read by the entitlement
+    // evaluator itself; a known plan slug is mirrored into a MemberMembership (source "alfred").
     alfredMembership: {
       type: new Schema(
         {
           tierKey: { type: String, required: true },
           status: { type: String, enum: ["active", "suspended", "cancelled"], required: true },
           validUntil: { type: Date, default: undefined },
+          // Who made the grant in Alfred; "stripe" = the member pays by card there.
+          source: { type: String, enum: ["stripe", "partner", "admin"], default: undefined },
           updatedAt: { type: Date, required: true },
         },
         { _id: false }
@@ -109,7 +111,7 @@ export type MemberData = InferSchemaType<typeof memberSchema>;
 export type MemberDocument = HydratedDocument<MemberData>;
 export const Member = model("Member", memberSchema);
 
-// One record per held membership. Several may be active at once (overlap);
+// One record per held membership. One is active per member (a staff grant ends the previous one);
 // the pure evaluator reads them as MembershipHolding (id, planId, status,
 // startedAt = anniversary anchor, endsAt).
 const membershipSchema = new Schema(
@@ -129,6 +131,8 @@ const membershipSchema = new Schema(
     priceCents: { type: Number, min: 0, default: null },
     billingTerm: { type: String, default: null },
     autoRenew: { type: Boolean, default: true },
+    // "alfred" = mirrored from an Alfred push (never pushed back); "staff" = granted in this admin.
+    source: { type: String, enum: ["staff", "alfred"], default: "staff" },
     processorSubscriptionId: { type: String, default: undefined },
     cancelledAt: Date,
     createdById: Schema.Types.ObjectId,

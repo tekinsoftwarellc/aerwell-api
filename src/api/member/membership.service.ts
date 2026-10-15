@@ -7,6 +7,7 @@ import {
   ValidationError,
 } from "../../common/errors/AppError.js";
 import { actor } from "../../common/http.js";
+import { enqueuePlanGrant } from "../alfred-partner/planGrant/planGrant.service.js";
 import { ledger } from "../appointment/ledger.service.js";
 import { audit } from "../audit/audit.js";
 import { MembershipPlan } from "../catalog/catalog.model.js";
@@ -101,6 +102,24 @@ async function lockAndAssertNoOverlap(
     );
 }
 
+/** A member who pays for a plan by card in Alfred cannot be given one by staff (cancel it there first). */
+async function refuseOverPaidSubscription(member: MemberDocument, session: ClientSession) {
+  const held = member.alfredMembership;
+  if (held?.source !== "stripe" || held.status !== "active" || held.tierKey === "bundled") return;
+  const paid = await MembershipPlan.findOne({
+    organizationId: member.organizationId,
+    slug: held.tierKey,
+  })
+    .select("name")
+    .session(session)
+    .lean();
+  throw new ConflictError(
+    `Member pays for ${paid?.name ?? held.tierKey} by card in Alfred. Cancel that subscription first.`,
+    undefined,
+    "PLAN_PAID_SUBSCRIPTION_ACTIVE"
+  );
+}
+
 interface HoldInput {
   planId: string;
   startedAt?: Date;
@@ -115,9 +134,16 @@ export async function holdMembership(
   session: ClientSession
 ) {
   const plan = await assignablePlan(member.organizationId, input.planId, session);
+  await refuseOverPaidSubscription(member, session);
   const startedAt = input.startedAt ?? new Date();
   const endsAt = input.endsAt ?? null;
   await lockAndAssertNoOverlap(member, { planId: plan._id, startedAt, endsAt }, session);
+  // One live membership per member: this grant ends the previous one.
+  await MemberMembership.updateMany(
+    { organizationId: member.organizationId, memberId: member._id, status: { $ne: "cancelled" } },
+    { $set: { status: "cancelled", cancelledAt: new Date() } },
+    { session }
+  );
   const [row] = await MemberMembership.create(
     [
       {
@@ -141,9 +167,11 @@ export async function holdMembership(
 
 export async function createMembership(req: Request) {
   const member = await memberTarget(req, { write: true });
-  return mongoose.connection.transaction((session) =>
+  const row = await mongoose.connection.transaction((session) =>
     holdMembership(req, member, req.body, session)
   );
+  await enqueuePlanGrant(row);
+  return row;
 }
 
 export async function listMemberships(req: Request) {
@@ -188,7 +216,7 @@ export async function patchMembership(req: Request) {
     autoRenew?: boolean;
   };
   try {
-    return await mongoose.connection.transaction(async (session) => {
+    const saved = await mongoose.connection.transaction(async (session) => {
       const row = await MemberMembership.findOne({
         _id: req.params["membershipId"],
         organizationId: member.organizationId,
@@ -229,6 +257,8 @@ export async function patchMembership(req: Request) {
       await audit(req, "updated", "MemberMembership", String(row._id), String(member._id), session);
       return row;
     });
+    await enqueuePlanGrant(saved);
+    return saved;
   } catch (error) {
     if ((error as Error).name === "VersionError") throw versionConflict();
     throw error;

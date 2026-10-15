@@ -14,6 +14,7 @@ export const membershipBody = z
     tierKey: z.string().min(1).max(100),
     status: membershipStatus,
     validUntil: instant.optional(),
+    source: z.enum(["stripe", "partner", "admin"]).optional(),
   })
   .strict();
 export const membershipParams = z.object({ accountId }).strict();
@@ -30,17 +31,9 @@ export const provisionBody = z
       })
       .strict(),
     baseLocationRef: ref.optional(),
-    // Recorded on `Member.alfredMembership`, nothing more (§5.1). `validUntil` is tolerated:
+    // Recorded on `Member.alfredMembership`, and mirrored for a known plan slug (§5.1). `validUntil` is tolerated:
     // Alfred's sender includes it here though the contract table lists only tierKey and status.
-    membership: z
-      .object({
-        tierKey: z.string().min(1).max(100),
-        status: membershipStatus,
-        validUntil: instant.optional(),
-      })
-      .strict()
-      .nullable()
-      .optional(),
+    membership: membershipBody.nullable().optional(),
   })
   .strict();
 

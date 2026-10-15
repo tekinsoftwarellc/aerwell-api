@@ -162,8 +162,8 @@ describe("POST /members stores the membership it carries", () => {
   });
 });
 
-describe("the record never reaches staff entitlement (Q4: no reverse flow)", () => {
-  it("leaves MemberMembership, ledger, plans and the real quote path unchanged", async () => {
+describe("bundled stays record-only; a known plan slug is mirrored", () => {
+  it("bundled leaves MemberMembership, ledger, plans and the real quote path unchanged", async () => {
     const w = await bookingWorld();
     const made = await provision();
     const memberId = made.body.data.partnerRef;
@@ -198,10 +198,10 @@ describe("the record never reaches staff entitlement (Q4: no reverse flow)", () 
     ];
     const before = { quotes: await quotes(), counts: await counts() };
     expect(before.quotes.every((q) => q.priceCents !== undefined)).toBe(true);
-    for (const tierKey of ["aerwell-essential", "aerwell-continuum", "bundled"])
-      expect(
-        (await client().post(path, { tierKey, status: "active", validUntil: until })).status
-      ).toBe(200);
+    expect(
+      (await client().post(path, { tierKey: "bundled", status: "active", validUntil: until }))
+        .status
+    ).toBe(200);
     expect((await client().post(path, { tierKey: "bundled", status: "cancelled" })).status).toBe(
       200
     );
@@ -209,5 +209,15 @@ describe("the record never reaches staff entitlement (Q4: no reverse flow)", () 
     expect(await quotes()).toEqual(before.quotes);
     expect(await counts()).toEqual(before.counts);
     expect(before.counts[0]).toBe(0);
+  });
+  it("a plan slug creates a local alfred-sourced row that prices the member", async () => {
+    await bookingWorld();
+    await provision();
+    expect(
+      (await client().post(path, { tierKey: "aerwell-continuum", status: "active" })).status
+    ).toBe(200);
+    const rows = await MemberMembership.find().lean();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ source: "alfred", status: "active" });
   });
 });
