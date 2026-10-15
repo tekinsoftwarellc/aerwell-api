@@ -206,7 +206,7 @@ describe("material changes only", () => {
     expect((await MemberMembership.findById(row._id).lean())?.source).toBe("staff");
     expect(await PlanGrantOutbox.countDocuments()).toBe(1);
   });
-  it("cancel sends no periodEnd unless endsAt is in the future", async () => {
+  it("cancel ends Alfred benefits at once: no periodEnd, even with a future endsAt", async () => {
     const past = await hold("aerwell-essential", {
       endsAt: "2020-01-01T00:00:00.000Z",
       startedAt: "2019-01-01T00:00:00.000Z",
@@ -219,7 +219,7 @@ describe("material changes only", () => {
     const future = await hold("aerwell-continuum", { endsAt: "2031-01-01T00:00:00.000Z" });
     await admin.send("patch", `${base()}/${future.body.data._id}`, { status: "cancelled" });
     const last = (await queued()).at(-1)?.body as { status: string; periodEnd: string };
-    expect(last).toMatchObject({ status: "cancelled", periodEnd: "2031-01-01T00:00:00.000Z" });
+    expect(last).toMatchObject({ status: "cancelled", periodEnd: null });
   });
 });
 
