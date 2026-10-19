@@ -8,6 +8,7 @@ export const MODULES = [
   "SYSTEM_SETTINGS",
   "SERVICES",
   "APPOINTMENTS",
+  "HEALTH_INTAKE",
 ] as const;
 export type PermissionModule = (typeof MODULES)[number];
 export type PermissionLevel = "none" | "view" | "edit" | "master";

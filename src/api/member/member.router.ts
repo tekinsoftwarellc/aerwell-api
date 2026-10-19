@@ -55,6 +55,8 @@ import {
   patchMembership,
 } from "./membership.service.js";
 
+import { readMemberHealthIntake } from "../health-intake/healthIntake.service.js";
+
 export const memberRouter = Router();
 const records = (level: "view" | "edit" | "master") =>
   ({ module: "MEMBER_RECORDS", level }) as const;
@@ -75,6 +77,14 @@ secured(
   archiveMembers
 );
 secured(r, "get", "/members/:id", records("view"), { params: idParams }, memberProfile);
+secured(
+  r,
+  "get",
+  "/members/:id/health-intake",
+  records("view"),
+  { params: idParams },
+  readMemberHealthIntake
+);
 secured(
   r,
   "patch",

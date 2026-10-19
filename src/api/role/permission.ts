@@ -102,7 +102,8 @@ export async function resolvePermissions(
     : null;
   return Object.fromEntries(
     MODULES.map((module) => {
-      if (staff.isSuperAdmin) return [module, { level: "master", scope: "all" }];
+      if (staff.isSuperAdmin && module !== "HEALTH_INTAKE")
+        return [module, { level: "master", scope: "all" }];
       const entry =
         staff.permissionOverrides.find((p) => p.module === module) ??
         role?.permissions.find((p) => p.module === module);

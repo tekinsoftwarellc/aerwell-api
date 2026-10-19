@@ -21,6 +21,11 @@ type Spec = [method: string, path: string, summary: string, extra?: Record<strin
 const ops: Spec[] = [
   [
     "get",
+    "/members/{id}/health-intake",
+    "Live Alfred intake, MEMBER_RECORDS view; detailed answers require HEALTH_INTAKE view, assignment scope and member authorization. No cache.",
+  ],
+  [
+    "get",
     "/members",
     "List members (MEMBER_RECORDS view). q, status[], flags[] (on_waitlist|outstanding_balance|flagged_for_review), sort, page, limit. Audited.",
   ],
