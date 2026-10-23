@@ -30,7 +30,7 @@ phases:
     on-failure: ABORT
     commands:
       - npm run build
-      - test -s dist/index.js && test -s dist/scripts/sync-indexes.js
+      - test -s dist/index.js && test -s dist/scripts/sync-indexes.js && test -s dist/scripts/bootstrap-staff.js
       # IMMUTABLE tags: a re-run of the same commit (e.g. to roll a Terraform task definition
       # change) reuses the pushed image instead of failing on push.
       - |
