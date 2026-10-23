@@ -26,7 +26,7 @@ RUN chmod 755 /app/scripts/container-entrypoint.sh
 USER node
 EXPOSE 3003
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD wget --quiet --tries=1 --spider http://localhost:3003/api/v1/health/live || exit 1
+  CMD wget --quiet --tries=1 --spider http://127.0.0.1:3003/api/v1/health/live || exit 1
 
 ENTRYPOINT ["/app/scripts/container-entrypoint.sh"]
 CMD ["node", "dist/index.js"]

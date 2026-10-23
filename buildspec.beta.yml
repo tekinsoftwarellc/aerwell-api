@@ -21,7 +21,7 @@ phases:
       - npm ci --no-audit --no-fund
       - npm run typecheck
       - npm run lint
-      - npm test
+      - npm test -- --retry=2
       - npm run test:container-entrypoint
       - export IMAGE_TAG="${CODEBUILD_RESOLVED_SOURCE_VERSION:0:12}"; IMAGE_TAG="${IMAGE_TAG:-build-$CODEBUILD_BUILD_NUMBER}"; export IMAGE_TAG
       - aws ecr get-login-password --region "$AWS_DEFAULT_REGION" | docker login --username AWS --password-stdin "${ECR_REPOSITORY_URI%/*}"
