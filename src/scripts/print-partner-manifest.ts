@@ -5,13 +5,17 @@ import { env } from "../config/env.js";
 
 // `npm run partner:manifest -- client-values.json`: prints the manifest to register with Alfred.
 // The client values file holds terms, support and street addresses (no secrets, no member data).
+// Container one-off tasks have no file to mount: with no path, PARTNER_MANIFEST_VALUES_JSON holds the JSON.
 async function main(): Promise<void> {
   const path = process.argv[2];
-  if (!(path && env.AERWELL_ORG_ID))
-    throw new Error("Usage: partner:manifest <client-values.json> (AERWELL_ORG_ID set)");
+  const inline = process.env["PARTNER_MANIFEST_VALUES_JSON"];
+  if (!((path || inline) && env.AERWELL_ORG_ID))
+    throw new Error(
+      "Usage: partner:manifest <client-values.json> or PARTNER_MANIFEST_VALUES_JSON (AERWELL_ORG_ID set)"
+    );
   await mongoose.connect(env.MONGODB_URI, { serverSelectionTimeoutMS: 10_000 });
   try {
-    const client = JSON.parse(readFileSync(path, "utf8"));
+    const client = JSON.parse(path ? readFileSync(path, "utf8") : (inline as string));
     console.log(JSON.stringify(await manifestFor(env.AERWELL_ORG_ID, client), null, 2));
   } finally {
     await mongoose.disconnect();

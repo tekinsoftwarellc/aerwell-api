@@ -19,6 +19,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:container-entrypoint": "node --test scripts/container-entrypoint.test.mjs",
     "smoke": "node scripts/smoke.mjs",
     "seed:dev": "tsx src/scripts/seed.ts",
     "migrate:catalog": "tsx src/scripts/migrate-catalog.ts",
