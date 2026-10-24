@@ -6,6 +6,7 @@ import {
 } from "@aws-sdk/client-bedrock-runtime";
 import { AppError } from "../../common/errors/AppError.js";
 import { env } from "../../config/env.js";
+import { AlfredRelayModel } from "./model.relay.js";
 
 /**
  * Alfred AI's model seam: Amazon Bedrock Converse only (AWS, BAA), through the
@@ -14,6 +15,7 @@ import { env } from "../../config/env.js";
  * suggestions run on FAST (Sonnet 5 rejected Converse `outputConfig` on 2026-09-25;
  * Sonnet 5.5 accepts it, 2026-10-09). Sonnet 5.x and Haiku 5.5 reject `temperature`,
  * so no request sets it. Tests replace the model with a scripted fake.
+ * AI_PROVIDER=alfred swaps Bedrock for the Alfred relay (`model.relay.ts`), same seam.
  */
 export type AlfredTier = "fast" | "smart";
 export type ConverseRequest = Omit<ConverseCommandInput, "modelId">;
@@ -25,7 +27,8 @@ export interface ModelTurn {
 }
 export interface AlfredModel {
   readonly modelId: string;
-  converse(request: ConverseRequest): Promise<ModelTurn>;
+  /** `feature` labels Alfred's usage row (relay only; Bedrock ignores it). */
+  converse(request: ConverseRequest, feature?: string): Promise<ModelTurn>;
 }
 interface ConverseClient {
   send(command: ConverseCommand): Promise<{
@@ -81,11 +84,17 @@ export const aiUnconfigured = () =>
 
 const overrides = new Map<AlfredTier, AlfredModel | null>();
 const real = new Map<AlfredTier, AlfredModel>();
+const relays = new Map<AlfredTier, AlfredModel>();
 let client: BedrockRuntimeClient | undefined;
 
 /** The configured model for a tier, or null when AI is unconfigured. */
 export function getAlfredModel(tier: AlfredTier): AlfredModel | null {
   if (overrides.has(tier)) return overrides.get(tier) ?? null;
+  if (env.AI_PROVIDER === "alfred") {
+    const relay = relays.get(tier) ?? new AlfredRelayModel(tier);
+    relays.set(tier, relay);
+    return relay;
+  }
   const modelId = tier === "smart" ? env.BEDROCK_MODEL_SMART : env.BEDROCK_MODEL_FAST;
   if (!(env.BEDROCK_REGION && modelId)) return null;
   const cached = real.get(tier);

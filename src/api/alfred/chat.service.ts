@@ -157,12 +157,15 @@ async function runLoop(model: AlfredModel, system: string, messages: Message[], 
   const usage = { inputTokens: 0, outputTokens: 0, latencyMs: 0, toolCalls: 0 };
   const convo = [...messages];
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
-    const turn = await model.converse({
-      system: [{ text: system }],
-      messages: convo,
-      toolConfig: toolConfig(),
-      inferenceConfig: { maxTokens: 1_500 },
-    });
+    const turn = await model.converse(
+      {
+        system: [{ text: system }],
+        messages: convo,
+        toolConfig: toolConfig(),
+        inferenceConfig: { maxTokens: 1_500 },
+      },
+      "aerwell.chat"
+    );
     usage.inputTokens += turn.usage.inputTokens;
     usage.outputTokens += turn.usage.outputTokens;
     usage.latencyMs += turn.latencyMs;

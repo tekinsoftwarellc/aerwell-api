@@ -6,6 +6,7 @@ import {
   textTurn,
   toolTurn,
   useModel,
+  useRelay,
 } from "../../test/alfredFixture.js";
 import { pinClock } from "../../test/appointmentFixture.js";
 import { AuditEvent } from "../audit/audit.js";
@@ -255,4 +256,41 @@ it("repairs a history that does not alternate, so one bad row never breaks the c
   const again = useModel("smart", [textTurn("Ok.")]);
   await say(api, id, "three");
   expect(again.requests[0]?.messages?.[0]?.role).toBe("user");
+});
+
+it("through the Alfred relay: the same tool loop, and a 429 mid-loop cancels the turn's drafts", async () => {
+  const w = await alfredWorld();
+  const { bodies } = useRelay("smart", [
+    toolTurn({ name: "member_lab_panel", input: { memberId: w.memberId, panelId: w.panelId } }),
+    textTurn("Shannon's latest panel is back."),
+  ]);
+  const api = w.http(w.director.accessToken);
+  const id = await conversation(api);
+  const res = await say(api, id, "How are Shannon's labs?");
+  expect(res.status).toBe(200);
+  expect(res.body.data.messages[1].text).toBe("Shannon's latest panel is back.");
+  // Round 2 carried round 1's call and the tool's real result back to Alfred.
+  expect(bodies).toHaveLength(2);
+  expect(bodies[0]).toMatchObject({ feature: "aerwell.chat", tier: "smart", maxTokens: 1500 });
+  expect((bodies[0]?.["tools"] as unknown[]).length).toBeGreaterThan(10);
+  const second = bodies[1]?.["messages"] as { role: string; content?: string }[];
+  expect(second.map((m) => m.role)).toEqual(["user", "assistant", "tool"]);
+  expect(second[2]?.content).toContain(String(LAB_SENTINEL));
+  expect(await AlfredUsage.findOne().lean()).toMatchObject({
+    modelId: "alfred:smart",
+    toolCalls: 1,
+    outcome: "ok",
+  });
+
+  useRelay("smart", [
+    toolTurn({ name: "propose_add_note", input: { memberId: w.memberId, body: "Tired" } }),
+    429,
+  ]);
+  const failed = await say(api, id, "Note that Shannon feels tired");
+  expect([failed.status, failed.body.code]).toEqual([502, "AI_FAILED"]);
+  expect(await AlfredDraft.find().select("status -_id").lean()).toEqual([{ status: "cancelled" }]);
+  expect(await AlfredUsage.findOne({ outcome: "error" }).lean()).toMatchObject({
+    errorName: "AI_RATE_LIMITED",
+  });
+  expect(await AlfredMessage.countDocuments()).toBe(2);
 });
