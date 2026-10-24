@@ -35,10 +35,16 @@ it("describes a failure with collection, index, code, codeName only", () => {
     codeName: "DuplicateKey",
   });
   expect(describeIndexSyncFailure(err)).toBe(
-    "Index sync failed: collection=members index=email_1 code=11000 codeName=DuplicateKey"
+    "Index sync failed: collection=members index=email_1 code=11000 codeName=DuplicateKey name=Error"
   );
   expect(describeIndexSyncFailure("boom")).toBe(
-    "Index sync failed: collection=unknown index=unknown code=unknown codeName=unknown"
+    "Index sync failed: collection=unknown index=unknown code=unknown codeName=unknown name=unknown"
+  );
+  const connect = Object.assign(new Error("secret mongodb://u:p@h"), {
+    name: "MongooseServerSelectionError",
+  });
+  expect(describeIndexSyncFailure(connect)).toBe(
+    "Index sync failed: collection=unknown index=unknown code=unknown codeName=unknown name=MongooseServerSelectionError"
   );
 });
 

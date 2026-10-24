@@ -11,12 +11,22 @@ export function describeIndexSyncFailure(error: unknown): string {
   const e = (error ?? {}) as Record<string, unknown>;
   const pick = (k: string) =>
     typeof e[k] === "string" || typeof e[k] === "number" ? String(e[k]) : "unknown";
-  return `Index sync failed: collection=${pick("collection")} index=${pick("index")} code=${pick("code")} codeName=${pick("codeName")}`;
+  return `Index sync failed: collection=${pick("collection")} index=${pick("index")} code=${pick("code")} codeName=${pick("codeName")} name=${pick("name")}`;
 }
 
 function withContext(error: unknown, collection: string, index: string): Error {
-  const { code, codeName } = (error ?? {}) as { code?: unknown; codeName?: unknown };
-  return Object.assign(new Error("Index sync failed"), { collection, index, code, codeName });
+  const { code, codeName, name } = (error ?? {}) as {
+    code?: unknown;
+    codeName?: unknown;
+    name?: unknown;
+  };
+  return Object.assign(new Error("Index sync failed", { cause: error }), {
+    collection,
+    index,
+    code,
+    codeName,
+    name,
+  });
 }
 
 /**
