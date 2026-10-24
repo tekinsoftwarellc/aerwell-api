@@ -17,11 +17,10 @@ phases:
   pre_build:
     on-failure: ABORT
     commands:
-      # Full install: `npm test` needs mongodb-memory-server's mongod (aarch64 download).
+      # Beta gate is typecheck + lint only (owner decision 24 Oct 2026): the vitest suite runs on the dev pipeline.
       - npm ci --no-audit --no-fund
       - npm run typecheck
       - npm run lint
-      - npm test -- --retry=2
       - npm run test:container-entrypoint
       - export IMAGE_TAG="${CODEBUILD_RESOLVED_SOURCE_VERSION:0:12}"; IMAGE_TAG="${IMAGE_TAG:-build-$CODEBUILD_BUILD_NUMBER}"; export IMAGE_TAG
       - aws ecr get-login-password --region "$AWS_DEFAULT_REGION" | docker login --username AWS --password-stdin "${ECR_REPOSITORY_URI%/*}"
