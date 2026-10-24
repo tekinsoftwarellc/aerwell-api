@@ -13,9 +13,9 @@ import type { AlfredModel, AlfredTier, ConverseRequest, ModelTurn } from "./mode
  * JSON schema is appended to the system text (callers already parse and ground the
  * JSON item by item).
  */
-// Alfred's contract cap on one tool message (Task 4). Aerwell's own 12k cap is on the
+// Alfred's contract cap on one tool message (16k). Aerwell's own 12k cap is on the
 // payload before its `{truncated, partialJson}` wrapper, so the wrapped text can exceed it.
-const TOOL_RESULT_MAX = 12_000;
+const TOOL_RESULT_MAX = 16_000;
 
 const texts = (blocks: ContentBlock[] | undefined) =>
   (blocks ?? []).flatMap((b) => ("text" in b && b.text ? [b.text] : [])).join("\n");
