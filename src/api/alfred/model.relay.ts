@@ -17,6 +17,16 @@ import type { AlfredModel, AlfredTier, ConverseRequest, ModelTurn } from "./mode
 // payload before its `{truncated, partialJson}` wrapper, so the wrapped text can exceed it.
 const TOOL_RESULT_MAX = 16_000;
 
+const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+
+/** Aerwell emits `{json}` results today; a `{text}` block is passed through rather than sent as "null". */
+const toolResultText = (block: unknown): string => {
+  if (isPlainObject(block) && "json" in block) return JSON.stringify(block["json"] ?? null);
+  if (isPlainObject(block) && typeof block["text"] === "string") return block["text"];
+  return "null";
+};
+
 const texts = (blocks: ContentBlock[] | undefined) =>
   (blocks ?? []).flatMap((b) => ("text" in b && b.text ? [b.text] : [])).join("\n");
 
@@ -30,7 +40,7 @@ function toAlfredMessages(messages: Message[]): AlfredAiMessage[] {
               {
                 id: String(b.toolUse.toolUseId),
                 name: String(b.toolUse.name),
-                input: b.toolUse.input as Record<string, unknown>,
+                input: isPlainObject(b.toolUse.input) ? b.toolUse.input : {},
               },
             ]
           : []
@@ -50,11 +60,7 @@ function toAlfredMessages(messages: Message[]): AlfredAiMessage[] {
             {
               role: "tool",
               toolCallId: String(b.toolResult.toolUseId),
-              content: JSON.stringify(
-                b.toolResult.content?.[0] && "json" in b.toolResult.content[0]
-                  ? b.toolResult.content[0].json
-                  : null
-              ).slice(0, TOOL_RESULT_MAX),
+              content: toolResultText(b.toolResult.content?.[0]).slice(0, TOOL_RESULT_MAX),
             },
           ]
         : []
