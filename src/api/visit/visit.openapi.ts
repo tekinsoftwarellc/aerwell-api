@@ -48,7 +48,7 @@ const ops: Spec[] = [
   [
     "post",
     "/appointments/{id}/next-steps",
-    "Draft next steps once from the transcript with Bedrock (us. inference profile, BEDROCK_MODEL_FAST); invalid or ungrounded items are dropped; server-assigned ids; nothing is written to the record. 503 SUGGESTIONS_UNCONFIGURED; 502 SUGGESTIONS_FAILED. CLINICAL_NOTES edit. Audited.",
+    "Draft next steps once from the transcript with the configured model provider (fast tier); invalid or ungrounded items are dropped; server-assigned ids; nothing is written to the record. 503 SUGGESTIONS_UNCONFIGURED; 502 SUGGESTIONS_FAILED. CLINICAL_NOTES edit. Audited.",
     {
       responses: {
         502: { description: "SUGGESTIONS_FAILED" },

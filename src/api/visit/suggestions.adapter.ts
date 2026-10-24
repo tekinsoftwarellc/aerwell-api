@@ -4,6 +4,8 @@ import {
   type ConverseCommandInput,
 } from "@aws-sdk/client-bedrock-runtime";
 import { env } from "../../config/env.js";
+import { ModelCallError } from "../alfred/model.adapter.js";
+import { AlfredRelayModel } from "../alfred/model.relay.js";
 import { ACTION_TYPES } from "./visit.model.js";
 
 /**
@@ -13,6 +15,7 @@ import { ACTION_TYPES } from "./visit.model.js";
  * Sonnet 5 rejects the Converse `outputConfig` structured-output field, so this
  * runs on BEDROCK_MODEL_FAST; the model invents identifiers, so the server assigns
  * every id; one bad item must be dropped, not the whole result.
+ * AI_PROVIDER=alfred sends the same request through Alfred instead (RelayNextStepGenerator).
  */
 export const PROMPT_VERSION = "visit-next-steps-v1";
 
@@ -88,6 +91,32 @@ export class BedrockNextStepGenerator implements NextStepGenerator {
   }
 }
 
+/** AI_PROVIDER=alfred: the same request through Alfred's relay on the FAST tier, same parse. */
+export class RelayNextStepGenerator implements NextStepGenerator {
+  private readonly model = new AlfredRelayModel("fast");
+  readonly modelId = this.model.modelId;
+
+  async generate(input: NextStepInput): Promise<unknown> {
+    const { modelId: Unused, ...request } = nextStepsRequest(this.modelId, input);
+    let text: string | undefined;
+    try {
+      const turn = await this.model.converse(request, "aerwell.visit.next_steps");
+      text = turn.content.find((block) => "text" in block && block.text)?.text;
+    } catch (error) {
+      throw Object.assign(new Error("suggestions_model_error"), {
+        providerErrorName:
+          error instanceof ModelCallError ? error.providerErrorName : "UnknownError",
+      });
+    }
+    if (!text) throw new Error("suggestions_empty");
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error("suggestions_malformed");
+    }
+  }
+}
+
 export function nextStepsRequest(modelId: string, input: NextStepInput): ConverseCommandInput {
   return {
     modelId,
@@ -111,10 +140,15 @@ export function nextStepsRequest(modelId: string, input: NextStepInput): Convers
 
 let override: NextStepGenerator | null | undefined;
 let real: NextStepGenerator | undefined;
+let relay: NextStepGenerator | undefined;
 
 /** The configured generator, or null (SUGGESTIONS_UNCONFIGURED). */
 export function getNextStepGenerator(): NextStepGenerator | null {
   if (override !== undefined) return override;
+  if (env.AI_PROVIDER === "alfred") {
+    relay ??= new RelayNextStepGenerator();
+    return relay;
+  }
   if (!(env.BEDROCK_REGION && env.BEDROCK_MODEL_FAST)) return null;
   real ??= new BedrockNextStepGenerator(
     new BedrockRuntimeClient({ region: env.BEDROCK_REGION, maxAttempts: 3 }),

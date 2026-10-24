@@ -6,6 +6,7 @@ import {
   textTurn,
   toolTurn,
   useModel,
+  useRelay,
 } from "../../test/alfredFixture.js";
 import { DAY, at, pinClock } from "../../test/appointmentFixture.js";
 import { Appointment } from "../appointment/appointment.model.js";
@@ -307,4 +308,24 @@ it("W11: a stuck non-idempotent draft is never re-run blindly; the staff member 
     { $set: { status: "confirming" }, $unset: { confirmingAt: "" } }
   );
   expect((await api.post(draftPath(old.id, "/cancel"))).status).toBe(200);
+});
+
+it("through the Alfred relay: a proposal is still only a draft, and the model sees the draft id result", async () => {
+  const w = await alfredWorld();
+  const { bodies } = useRelay("smart", [
+    toolTurn({ name: "propose_add_note", input: { memberId: w.memberId, body: "Feels better" } }),
+    textTurn("A draft is ready for your review."),
+  ]);
+  const api = w.http(w.director.accessToken);
+  const convo = await api.post("/api/v1/alfred/conversations");
+  const res = await api.post(`/api/v1/alfred/conversations/${convo.body.data.id}/messages`, {
+    text: "please",
+  });
+  expect(res.status).toBe(200);
+  const [draft] = res.body.data.messages[1].drafts;
+  expect(draft).toMatchObject({ kind: "add_note", status: "pending" });
+  expect(await MemberNote.countDocuments()).toBe(0);
+  const tool = (bodies[1]?.["messages"] as { role: string; content: string }[]).at(-1);
+  expect(tool?.role).toBe("tool");
+  expect(tool?.content).toContain(draft.id);
 });

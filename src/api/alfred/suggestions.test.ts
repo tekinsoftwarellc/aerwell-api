@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ModelTurn } from "../../api/alfred/model.adapter.js";
-import { alfredWorld, resetModels, useModel } from "../../test/alfredFixture.js";
+import { alfredWorld, resetModels, useModel, useRelay } from "../../test/alfredFixture.js";
 import { DAY, at, pinClock } from "../../test/appointmentFixture.js";
 import { Appointment } from "../appointment/appointment.model.js";
 import { AuditEvent } from "../audit/audit.js";
@@ -279,4 +279,23 @@ it("audits visit suggestions against the visit's member, and dashboard suggestio
       memberId: null,
     })
   ).toBe(2);
+});
+
+it("through the Alfred relay: JSON schema rides in the system text and grounding still applies", async () => {
+  const w = await alfredWorld();
+  const { bodies } = useRelay("fast", [
+    json({ suggestions: [good("Review the dashboard", ["dashboard"]), good("Bad", ["nope"])] }),
+  ]);
+  const api = w.http(w.director.accessToken);
+  const res = await api.post(PATH, { context: "dashboard" });
+  expect(res.status).toBe(201);
+  expect(res.body.data.items.map((i: { title: string }) => i.title)).toEqual([
+    "Review the dashboard",
+  ]);
+  expect(bodies[0]).toMatchObject({ feature: "aerwell.suggestions.dashboard", tier: "fast" });
+  expect(String(bodies[0]?.["system"])).toContain("Respond with JSON only matching this schema");
+  expect(bodies[0]).not.toHaveProperty("outputConfig");
+  useRelay("fast", [503]);
+  const failed = await api.post(PATH, { context: "dashboard" });
+  expect([failed.status, failed.body.code]).toEqual([502, "AI_FAILED"]);
 });

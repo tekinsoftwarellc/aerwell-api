@@ -1,4 +1,5 @@
 import type { ContentBlock } from "@aws-sdk/client-bedrock-runtime";
+import { vi } from "vitest";
 import {
   type AlfredModel,
   type AlfredTier,
@@ -7,6 +8,7 @@ import {
   type ModelTurn,
   setAlfredModel,
 } from "../api/alfred/model.adapter.js";
+import { AlfredRelayModel } from "../api/alfred/model.relay.js";
 import { StaffMember } from "../api/staff/staff.model.js";
 import { bookingWorld } from "./appointmentFixture.js";
 import { catalogIds, result } from "./clinicalFixture.js";
@@ -89,6 +91,57 @@ export function useModel(tier: AlfredTier, steps: Step[]) {
 export function resetModels() {
   setAlfredModel("smart", undefined);
   setAlfredModel("fast", undefined);
+  vi.unstubAllGlobals();
+}
+
+/** A scripted turn as Alfred's `/partner/ai/complete` answers it (inside the `data` envelope). */
+export const alfredReply = (turn: ModelTurn) => ({
+  stopReason: turn.stopReason,
+  content: turn.content.flatMap((b) => ("text" in b && b.text ? [b.text] : [])).join("\n") || null,
+  toolCalls: turn.content.flatMap((b) =>
+    "toolUse" in b && b.toolUse
+      ? [{ id: b.toolUse.toolUseId, name: b.toolUse.name, input: b.toolUse.input }]
+      : []
+  ),
+  usage: turn.usage,
+  latencyMs: turn.latencyMs,
+});
+interface RelayCall {
+  url: string;
+  headers: Record<string, string>;
+}
+/**
+ * Installs the REAL relay model for a tier against a scripted Alfred: each step is
+ * one `/partner/ai/complete` answer, or an HTTP status for a refusal. Every request
+ * body Alfred received is kept.
+ */
+export function useRelay(tier: AlfredTier, steps: (ModelTurn | number)[]) {
+  const bodies: Record<string, unknown>[] = [];
+  const calls: RelayCall[] = [];
+  vi.stubGlobal("fetch", (url: string | URL, init: RequestInit = {}) => {
+    if (String(url).endsWith("/oauth/token"))
+      return Promise.resolve(
+        new Response(JSON.stringify({ access_token: "tok", expires_in: 300 }))
+      );
+    calls.push({ url: String(url), headers: init.headers as Record<string, string> });
+    bodies.push(JSON.parse(String(init.body)));
+    const step = steps.shift();
+    if (step === undefined || typeof step === "number")
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ success: false, data: { code: "X" }, message: "provider said" }),
+          {
+            status: step ?? 500,
+          }
+        )
+      );
+    return Promise.resolve(
+      new Response(JSON.stringify({ success: true, data: alfredReply(step) }))
+    );
+  });
+  const model = new AlfredRelayModel(tier);
+  setAlfredModel(tier, model);
+  return { bodies, calls, model };
 }
 
 export const LAB_SENTINEL = 4.87;
