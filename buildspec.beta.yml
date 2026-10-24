@@ -1,0 +1,54 @@
+# Beta pipeline: push to `beta` -> CodeBuild (ARM64, privileged) -> ECR image -> CodeBuild deploy.
+# Runs every gate from buildspec.yml first; a failing gate aborts before any image is pushed
+# or imagedefinitions.json is written, so the deploy step never runs.
+# Expected project environment variables: ECR_REPOSITORY_URI, AWS_DEFAULT_REGION.
+version: 0.2
+
+env:
+  shell: bash
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 22
+    commands:
+      - node -v && npm -v && docker -v
+
+  pre_build:
+    on-failure: ABORT
+    commands:
+      # Beta gate is typecheck + lint only (owner decision 24 Oct 2026): the vitest suite runs on the dev pipeline.
+      - npm ci --no-audit --no-fund
+      - npm run typecheck
+      - npm run lint
+      - npm run test:container-entrypoint
+      - export IMAGE_TAG="${CODEBUILD_RESOLVED_SOURCE_VERSION:0:12}"; IMAGE_TAG="${IMAGE_TAG:-build-$CODEBUILD_BUILD_NUMBER}"; export IMAGE_TAG
+      - aws ecr get-login-password --region "$AWS_DEFAULT_REGION" | docker login --username AWS --password-stdin "${ECR_REPOSITORY_URI%/*}"
+
+  build:
+    on-failure: ABORT
+    commands:
+      - npm run build
+      - test -s dist/index.js && test -s dist/scripts/sync-indexes.js && test -s dist/scripts/bootstrap-staff.js
+      # IMMUTABLE tags: a re-run of the same commit (e.g. to roll a Terraform task definition
+      # change) reuses the pushed image instead of failing on push.
+      - |
+        if aws ecr describe-images --repository-name "${ECR_REPOSITORY_URI##*/}" --image-ids imageTag="$IMAGE_TAG" >/dev/null 2>&1; then
+          echo "image $IMAGE_TAG exists, skipping build"
+        else
+          docker build -t "$ECR_REPOSITORY_URI:$IMAGE_TAG" . && docker push "$ECR_REPOSITORY_URI:$IMAGE_TAG"
+        fi
+
+  post_build:
+    commands:
+      # Container name must equal the service-unit `unit` (aerwell).
+      - printf '[{"name":"aerwell","imageUri":"%s"}]\n' "$ECR_REPOSITORY_URI:$IMAGE_TAG" > imagedefinitions.json
+      - cat imagedefinitions.json
+
+artifacts:
+  files:
+    - imagedefinitions.json
+
+cache:
+  paths:
+    - /root/.npm/**/*

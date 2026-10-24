@@ -15,14 +15,14 @@ const errors = {
   502: {
     description: "AI_FAILED (model call failed; provider error name is logged, never the message)",
   },
-  503: { description: "AI_UNCONFIGURED (no BEDROCK_REGION or model id for the tier)" },
+  503: { description: "AI_UNCONFIGURED (no configured model provider for the tier)" },
 };
 type Spec = [method: string, path: string, summary: string];
 const ops: Spec[] = [
   [
     "get",
     "/alfred/config",
-    "Whether chat (BEDROCK_MODEL_SMART) and suggestions (BEDROCK_MODEL_FAST) are configured.",
+    "Whether chat (smart tier) and suggestions (fast tier) are configured on the configured model provider.",
   ],
   ["get", "/alfred/conversations", "The caller's own conversations, newest first (max 30)."],
   ["post", "/alfred/conversations", "Start a conversation owned by the caller."],

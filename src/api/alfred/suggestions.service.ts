@@ -173,36 +173,39 @@ export async function generateSuggestions(req: Request, cache: CacheService) {
   };
   let body: unknown;
   try {
-    const turn = await model.converse({
-      system: [{ text: SYSTEM }],
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              text: JSON.stringify({
-                context: target.context,
-                today: await organizationToday(staff.organizationId),
-                sources,
-              }),
-            },
-          ],
-        },
-      ],
-      inferenceConfig: { maxTokens: 1_500 },
-      outputConfig: {
-        textFormat: {
-          type: "json_schema",
-          structure: {
-            jsonSchema: {
-              name: "alfred_suggestions_v1",
-              description: "Draft next actions for staff review",
-              schema: JSON.stringify(suggestionsJsonSchema(keys)),
+    const turn = await model.converse(
+      {
+        system: [{ text: SYSTEM }],
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                text: JSON.stringify({
+                  context: target.context,
+                  today: await organizationToday(staff.organizationId),
+                  sources,
+                }),
+              },
+            ],
+          },
+        ],
+        inferenceConfig: { maxTokens: 1_500 },
+        outputConfig: {
+          textFormat: {
+            type: "json_schema",
+            structure: {
+              jsonSchema: {
+                name: "alfred_suggestions_v1",
+                description: "Draft next actions for staff review",
+                schema: JSON.stringify(suggestionsJsonSchema(keys)),
+              },
             },
           },
         },
       },
-    });
+      `aerwell.suggestions.${target.context}`
+    );
     const text = turn.content.find((b) => "text" in b && b.text)?.text ?? "";
     body = JSON.parse(text);
     await AlfredUsage.create({

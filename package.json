@@ -19,6 +19,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:container-entrypoint": "node --test scripts/container-entrypoint.test.mjs",
     "smoke": "node scripts/smoke.mjs",
     "seed:dev": "tsx src/scripts/seed.ts",
     "migrate:catalog": "tsx src/scripts/migrate-catalog.ts",
@@ -27,6 +28,7 @@
     "clinical:fulfilment": "tsx src/scripts/set-clinical-fulfilment.ts",
     "db:sync-indexes": "node dist/scripts/sync-indexes.js",
     "seed:dist": "node dist/scripts/seed.js",
+    "bootstrap:staff": "node dist/scripts/bootstrap-staff.js",
     "cleanup:everhaus": "node dist/scripts/cleanup-everhaus.js"
   },
   "dependencies": {

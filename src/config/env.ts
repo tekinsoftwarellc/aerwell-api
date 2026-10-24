@@ -51,6 +51,10 @@ export const envObject = z.object({
   BEDROCK_REGION: z.string().min(1).optional(),
   BEDROCK_MODEL_FAST: z.string().startsWith("us.").optional(),
   BEDROCK_MODEL_SMART: z.string().startsWith("us.").optional(),
+  // `alfred`: chat, suggestions and visit next steps go through Alfred's
+  // /partner/ai/complete (scope partner.ai.complete) and BEDROCK_* is ignored.
+  AI_PROVIDER: z.enum(["bedrock", "alfred"]).default("bedrock"),
+  ALFRED_AI_TIMEOUT_MS: z.coerce.number().int().min(1000).default(60_000),
 });
 // A blank `KEY=` line (as copied from .env.example) means "unset", not an empty value.
 const withoutBlankValues = (input: unknown) =>
@@ -81,6 +85,19 @@ const validatedEnv = envObject
       path: ["PARTNER_CONTRACT_ENABLED"],
       message:
         "The partner contract needs ALFRED_PARTNER_ORG_ID, ALFRED_AUTH_JWKS_URL and AERWELL_ORG_ID",
+    }
+  )
+  .refine(
+    (value) =>
+      value.AI_PROVIDER !== "alfred" ||
+      (value.ALFRED_API_URL &&
+        value.ALFRED_AUTH_URL &&
+        value.ALFRED_AUTH_CLIENT_ID &&
+        value.ALFRED_AUTH_CLIENT_SECRET),
+    {
+      path: ["AI_PROVIDER"],
+      message:
+        "AI_PROVIDER=alfred needs ALFRED_API_URL, ALFRED_AUTH_URL, ALFRED_AUTH_CLIENT_ID and ALFRED_AUTH_CLIENT_SECRET",
     }
   );
 export const envSchema = z.preprocess(withoutBlankValues, validatedEnv);
