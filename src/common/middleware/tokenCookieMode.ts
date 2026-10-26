@@ -117,7 +117,9 @@ export function tokenCookieMode(options: TokenCookieOptions): RequestHandler {
     }
     const origin = req.get("origin");
     const allowed = origin
-      ? await Promise.resolve(options.isAllowedOrigin(origin)).catch(() => false)
+      ? await Promise.resolve()
+          .then(() => options.isAllowedOrigin(origin))
+          .catch(() => false)
       : false;
     if (!allowed) {
       res

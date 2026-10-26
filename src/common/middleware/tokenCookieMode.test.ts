@@ -152,3 +152,20 @@ describe("tokenCookieMode", () => {
     expect(res.status).toBe(403);
   });
 });
+
+describe("tokenCookieMode allowlist errors", () => {
+  it("treats a throwing or rejecting allowlist check as a refusal, never a hang", async () => {
+    for (const check of [
+      () => {
+        throw new Error("boom");
+      },
+      () => Promise.reject(new Error("boom")),
+    ]) {
+      const res = await request(app(check as (o: string) => boolean))
+        .post("/api/v1/auth/login")
+        .set(cookieMode)
+        .send({});
+      expect(res.status).toBe(403);
+    }
+  });
+});
