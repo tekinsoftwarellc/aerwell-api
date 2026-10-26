@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { tokenCookieMode } from "./tokenCookieMode.js";
 
 const ORIGIN = "https://admin.example.dev";
-const app = (allowed: (o: string) => boolean = (o) => o === ORIGIN) => {
+const app = (allowed: (o: string) => boolean | Promise<boolean> = (o) => o === ORIGIN) => {
   const a = express();
   a.use(express.json());
   a.use(
@@ -161,10 +161,7 @@ describe("tokenCookieMode allowlist errors", () => {
       },
       () => Promise.reject(new Error("boom")),
     ]) {
-      const res = await request(app(check as (o: string) => boolean))
-        .post("/api/v1/auth/login")
-        .set(cookieMode)
-        .send({});
+      const res = await request(app(check)).post("/api/v1/auth/login").set(cookieMode).send({});
       expect(res.status).toBe(403);
     }
   });
