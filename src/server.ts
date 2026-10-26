@@ -37,6 +37,7 @@ import { correlationId } from "./common/middleware/correlationId.js";
 import { errorHandler } from "./common/middleware/errorHandler.js";
 import { createRateLimiter } from "./common/middleware/rateLimiter.js";
 import { requestLogger } from "./common/middleware/requestLogger.js";
+import { tokenCookieMode } from "./common/middleware/tokenCookieMode.js";
 import { type CacheService, createCacheService } from "./common/services/cache.service.js";
 import { env } from "./config/env.js";
 import { swaggerSpec } from "./config/swagger.js";
@@ -66,6 +67,15 @@ export const createServer = (cache: CacheService = createCacheService()): Expres
   if (env.NODE_ENV !== "production")
     app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
   app.use("/api/v1/health", healthRouter);
+  // Cookie sessions never run with a wildcard allowlist: `*` echoes any origin with credentials.
+  app.use(
+    "/api/v1/auth",
+    tokenCookieMode({
+      isAllowedOrigin: (origin) => !origins.includes("*") && origins.includes(origin),
+      maxAgeSeconds: 30 * 86400, // matches StaffSession expiry (session.service.ts)
+      cookiePath: "/api/v1/auth",
+    })
+  );
   app.use("/api/v1/auth", createAuthRouter(cache));
   app.use("/api/v1", meRouter);
   app.use("/api/v1", settingsRouter);
