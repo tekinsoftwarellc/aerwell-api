@@ -10,6 +10,7 @@ phases:
     commands:
       - node -v
       - npm ci --no-audit --no-fund
+      - node --test scripts/check-no-audio-persistence.test.mjs
   build:
     commands:
       - npm run typecheck
