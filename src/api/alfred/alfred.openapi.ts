@@ -55,7 +55,7 @@ const ops: Spec[] = [
   [
     "post",
     "/alfred/suggestions",
-    "Generate suggestions {context, memberId?, appointmentId?} from the routes the caller can read. Drafts only; nothing is written to the record.",
+    "Generate suggestions {context, memberId?, appointmentId?} from the routes the caller can read. Drafts only; nothing is written to the record. An empty result carries reason NO_SUGGESTIONS.",
   ],
   ["post", "/alfred/suggestions/{sid}/action", "Mark a suggestion {status: done|dismissed}, once."],
 ];

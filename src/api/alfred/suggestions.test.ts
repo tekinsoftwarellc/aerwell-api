@@ -299,3 +299,51 @@ it("through the Alfred relay: JSON schema rides in the system text and grounding
   const failed = await api.post(PATH, { context: "dashboard" });
   expect([failed.status, failed.body.code]).toEqual([502, "AI_FAILED"]);
 });
+
+const FENCED_EMPTY = '```json\n{\n  "suggestions": []\n}\n```';
+const relayTurn = (text: string): ModelTurn => ({
+  stopReason: "end_turn",
+  content: [{ text }],
+  usage: { inputTokens: 1_200, outputTokens: 17 },
+  latencyMs: 5,
+});
+
+it("empty dashboard: Alfred's fenced empty list is 'no suggestions', not a 502", async () => {
+  const w = await alfredWorld();
+  useRelay("fast", [relayTurn(FENCED_EMPTY)]);
+  const res = await w.http(w.director.accessToken).post(PATH, { context: "dashboard" });
+  expect(res.status).toBe(201);
+  expect(res.body.data).toMatchObject({
+    configured: true,
+    items: [],
+    total: 0,
+    done: 0,
+    reason: "NO_SUGGESTIONS",
+  });
+  expect(await AlfredSuggestion.countDocuments()).toBe(0);
+  expect(await AlfredUsage.countDocuments({ outcome: "ok", outputTokens: 17 })).toBe(1);
+  expect(await AlfredUsage.countDocuments({ outcome: "error" })).toBe(0);
+});
+
+it("an empty model answer is also 'no suggestions'", async () => {
+  const w = await alfredWorld();
+  useRelay("fast", [relayTurn("")]); // alfredReply sends content: null
+  const res = await w.http(w.director.accessToken).post(PATH, { context: "dashboard" });
+  expect([res.status, res.body.data.reason, res.body.data.items]).toEqual([
+    201,
+    "NO_SUGGESTIONS",
+    [],
+  ]);
+});
+
+it("a fenced reply with a real suggestion is stored and has no reason", async () => {
+  const w = await alfredWorld();
+  const body = JSON.stringify({ suggestions: [good("Clear the lab queue", ["dashboard"])] });
+  useRelay("fast", [relayTurn(`\`\`\`json\n${body}\n\`\`\``)]);
+  const res = await w.http(w.director.accessToken).post(PATH, { context: "dashboard" });
+  expect(res.status).toBe(201);
+  expect(res.body.data.items.map((i: { title: string }) => i.title)).toEqual([
+    "Clear the lab queue",
+  ]);
+  expect(res.body.data).not.toHaveProperty("reason");
+});

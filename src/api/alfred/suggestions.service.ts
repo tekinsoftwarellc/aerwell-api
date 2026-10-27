@@ -28,6 +28,7 @@ import { ModelCallError, aiUnconfigured, getAlfredModel } from "./model.adapter.
  */
 export const PROMPT_VERSION = "alfred-suggestions-v1";
 export const MAX_SUGGESTIONS = 6;
+export const NO_SUGGESTIONS = "NO_SUGGESTIONS" as const;
 const SOURCE_CHARS = 6_000;
 export interface SuggestionTarget {
   context: SuggestionContext;
@@ -207,7 +208,7 @@ export async function generateSuggestions(req: Request, cache: CacheService) {
       `aerwell.suggestions.${target.context}`
     );
     const text = turn.content.find((b) => "text" in b && b.text)?.text ?? "";
-    body = JSON.parse(text);
+    body = text.trim() ? JSON.parse(text) : { suggestions: [] };
     await AlfredUsage.create({
       ...usageRow,
       ...turn.usage,
@@ -242,6 +243,7 @@ export async function generateSuggestions(req: Request, cache: CacheService) {
     items: rows.map((r) => view(r)),
     done: 0,
     total: rows.length,
+    ...(rows.length === 0 ? { reason: NO_SUGGESTIONS } : {}),
   };
 }
 

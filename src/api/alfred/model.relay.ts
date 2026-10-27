@@ -11,7 +11,8 @@ import type { AlfredModel, AlfredTier, ConverseRequest, ModelTurn } from "./mode
  * `/partner/ai/complete`. The tool loop, drafts and history stay in Aerwell; Alfred
  * only returns the next step. Converse `outputConfig` has no Alfred field, so its
  * JSON schema is appended to the system text (callers already parse and ground the
- * JSON item by item).
+ * JSON item by item). Without enforced structured output the model often wraps its
+ * JSON in a Markdown fence, so JSON-schema replies are unwrapped here, once.
  */
 // Alfred's contract cap on one tool message (16k). Aerwell's own 12k cap is on the
 // payload before its `{truncated, partialJson}` wrapper, so the wrapped text can exceed it.
@@ -26,6 +27,12 @@ const toolResultText = (block: unknown): string => {
   if (isPlainObject(block) && typeof block["text"] === "string") return block["text"];
   return "null";
 };
+
+/** The inner text when the whole reply is one ``` / ```json fenced block, else the text unchanged. */
+export function unwrapJsonFence(text: string): string {
+  const m = /^```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n?```$/i.exec(text.trim());
+  return m ? (m[1] ?? "").trim() : text;
+}
 
 const texts = (blocks: ContentBlock[] | undefined) =>
   (blocks ?? []).flatMap((b) => ("text" in b && b.text ? [b.text] : [])).join("\n");
@@ -111,8 +118,10 @@ export class AlfredRelayModel implements AlfredModel {
   async converse(request: ConverseRequest, feature = `aerwell.${this.tier}`): Promise<ModelTurn> {
     const started = Date.now();
     const reply = await completeViaAlfred(toAlfredRequest(request, this.tier, feature));
+    const json = request.outputConfig?.textFormat?.type === "json_schema";
+    const text = json && reply.content ? unwrapJsonFence(reply.content) : reply.content;
     const content: ContentBlock[] = [
-      ...(reply.content ? [{ text: reply.content }] : []),
+      ...(text ? [{ text }] : []),
       ...reply.toolCalls.map(
         (c) => ({ toolUse: { toolUseId: c.id, name: c.name, input: c.input } }) as ContentBlock
       ),
