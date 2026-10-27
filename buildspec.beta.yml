@@ -19,6 +19,7 @@ phases:
     commands:
       # Beta gate is typecheck + lint only (owner decision 24 Oct 2026): the vitest suite runs on the dev pipeline.
       - npm ci --no-audit --no-fund
+      - node --test scripts/check-no-audio-persistence.test.mjs
       - npm run typecheck
       - npm run lint
       - npm run test:container-entrypoint
