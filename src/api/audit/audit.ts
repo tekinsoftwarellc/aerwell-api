@@ -21,8 +21,10 @@ const schema = new Schema(
 );
 schema.index({ organizationId: 1, occurredAt: -1, _id: -1 });
 schema.index({ organizationId: 1, memberId: 1, occurredAt: -1 });
+// Phase 2 of decision 2B: matches the live index the migration created, so boot and sync are a no-op.
+schema.index({ occurredAt: 1 }, { expireAfterSeconds: CLINICAL_AUDIT_TTL_SECONDS });
 // Six-year TTL (2192 d) on `occurredAt`, owner decision 2B. Created by
-// `node dist/scripts/migrate-audit-ttl.js --confirm`; declared in the schema from phase 2. The
+// `node dist/scripts/migrate-audit-ttl.js --confirm`; declared in the schema since phase 2. The
 // append-only hooks do not stop the server-side TTL monitor. No mutation routes.
 for (const operation of [
   "updateOne",
