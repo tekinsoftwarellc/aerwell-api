@@ -22,6 +22,7 @@
     "test:container-entrypoint": "node --test scripts/container-entrypoint.test.mjs",
     "smoke": "node scripts/smoke.mjs",
     "seed:dev": "tsx src/scripts/seed.ts",
+    "erase:member": "node dist/scripts/erase-member.js",
     "migrate:audit-ttl": "node dist/scripts/migrate-audit-ttl.js",
     "migrate:catalog": "tsx src/scripts/migrate-catalog.ts",
     "partner:manifest": "tsx src/scripts/print-partner-manifest.ts",
