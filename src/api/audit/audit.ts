@@ -1,6 +1,11 @@
 import type { Request } from "express";
 import { type ClientSession, Schema, model } from "mongoose";
 import { env } from "../../config/env.js";
+/**
+ * Six years incl. leap days (2192 d = 6 x 365 + 2), owner decision 2B (27 Oct 2026), the same
+ * period as Alfred `healthaudits` and Everhaus `auditlogs`. Never `6 * 365`.
+ */
+export const CLINICAL_AUDIT_TTL_SECONDS = 2192 * 24 * 60 * 60;
 const schema = new Schema(
   {
     organizationId: { type: String, required: true, index: true },
@@ -16,7 +21,9 @@ const schema = new Schema(
 );
 schema.index({ organizationId: 1, occurredAt: -1, _id: -1 });
 schema.index({ organizationId: 1, memberId: 1, occurredAt: -1 });
-// Retained indefinitely (at least six years); no TTL and no mutation routes.
+// Six-year TTL (2192 d) on `occurredAt`, owner decision 2B. Created by
+// `node dist/scripts/migrate-audit-ttl.js --confirm`; declared in the schema from phase 2. The
+// append-only hooks do not stop the server-side TTL monitor. No mutation routes.
 for (const operation of [
   "updateOne",
   "updateMany",
