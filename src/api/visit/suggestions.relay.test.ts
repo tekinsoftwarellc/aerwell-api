@@ -48,3 +48,8 @@ it("keeps only the relay error NAME and refuses malformed JSON", async () => {
   });
   await expect(generator.generate(input)).rejects.toThrow("suggestions_malformed");
 });
+
+it("accepts a fenced JSON reply from the relay", async () => {
+  useRelay("fast", [textTurn('```json\n{"nextSteps":[]}\n```')]);
+  expect(await new RelayNextStepGenerator().generate(input)).toEqual({ nextSteps: [] });
+});
