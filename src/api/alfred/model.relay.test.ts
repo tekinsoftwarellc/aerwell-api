@@ -1,8 +1,8 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { env } from "../../config/env.js";
-import { useRelay } from "../../test/alfredFixture.js";
+import { textTurn, useRelay } from "../../test/alfredFixture.js";
 import { ModelCallError, getAlfredModel, setAlfredModel } from "./model.adapter.js";
-import { AlfredRelayModel } from "./model.relay.js";
+import { AlfredRelayModel, unwrapJsonFence } from "./model.relay.js";
 
 afterEach(() => {
   env.AI_PROVIDER = "bedrock";
@@ -191,4 +191,20 @@ it("AI_PROVIDER=alfred selects the relay for both tiers and ignores BEDROCK_*", 
   env.AI_PROVIDER = "alfred";
   expect(getAlfredModel("smart")).toBeInstanceOf(AlfredRelayModel);
   expect(getAlfredModel("fast")?.modelId).toBe("alfred:fast");
+});
+
+it("unwrapJsonFence: only a whole-reply fence is removed", () => {
+  expect(unwrapJsonFence('```json\n{"a":1}\n```')).toBe('{"a":1}');
+  expect(unwrapJsonFence("```\n[]\n```")).toBe("[]");
+  expect(unwrapJsonFence('{"a":1}')).toBe('{"a":1}');
+  expect(unwrapJsonFence("Here:\n```json\n{}\n```")).toBe("Here:\n```json\n{}\n```");
+});
+
+it("a chat (no JSON schema) reply that is a code block passes through unchanged", async () => {
+  const code = "```\nnpm run build\n```";
+  useRelay("smart", [textTurn(code)]);
+  const turn = await new AlfredRelayModel("smart").converse({
+    messages: [{ role: "user", content: [{ text: "hi" }] }],
+  });
+  expect(turn.content).toEqual([{ text: code }]);
 });
