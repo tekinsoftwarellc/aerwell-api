@@ -208,7 +208,12 @@ export async function generateSuggestions(req: Request, cache: CacheService) {
       `aerwell.suggestions.${target.context}`
     );
     const text = turn.content.find((b) => "text" in b && b.text)?.text ?? "";
-    body = text.trim() ? JSON.parse(text) : { suggestions: [] };
+    // An empty answer is "nothing to suggest" only when the model finished normally.
+    body = text.trim()
+      ? JSON.parse(text)
+      : turn.stopReason === "end_turn"
+        ? { suggestions: [] }
+        : JSON.parse(text);
     await AlfredUsage.create({
       ...usageRow,
       ...turn.usage,

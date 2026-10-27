@@ -347,3 +347,11 @@ it("a fenced reply with a real suggestion is stored and has no reason", async ()
   ]);
   expect(res.body.data).not.toHaveProperty("reason");
 });
+
+it("an empty answer that stopped early (max_tokens) is a 502, not 'no suggestions'", async () => {
+  const w = await alfredWorld();
+  useRelay("fast", [{ ...relayTurn(""), stopReason: "max_tokens" }]);
+  const res = await w.http(w.director.accessToken).post(PATH, { context: "dashboard" });
+  expect([res.status, res.body.code]).toEqual([502, "AI_FAILED"]);
+  expect(await AlfredUsage.countDocuments({ outcome: "ok" })).toBe(0);
+});
