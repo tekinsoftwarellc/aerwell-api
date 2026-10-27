@@ -6,12 +6,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+// LIMIT: this is a text scan of the guarded dirs only. A writer helper outside them, imported
+// under a name that does not contain "upload" or "serviceImage", is NOT caught. Name such
+// helpers accordingly, or add the module's directory to GUARDED.
 export const GUARDED = ["src/api/visit"];
 // path -> reason. Needs a reviewer. Empty on purpose.
 export const ALLOW = {};
 
 const RULES = [
   ["fs-import", /from\s+["'](node:)?fs(\/promises)?["']|require\(\s*["'](node:)?fs|import\(\s*["'](node:)?fs/],
+  ["require-factory", /\bcreateRequire\b|from\s+["'](node:)?module["']|require\(\s*["'](node:)?module["']/],
+  ["child-process", /(from|require\(|import\()\s*["'](node:)?child_process["']/],
+  ["dynamic-import", /\bimport\(\s*[^"'\s)]/],
   ["fs-call", /\bfs\s*\./],
   ["file-write", /\b(writeFile|appendFile|createWriteStream)\w*/],
   ["s3", /@aws-sdk\/(client-s3|lib-storage)|\bS3Client\b|\bPutObject\w*/],
@@ -57,6 +63,15 @@ test("flags each persistence rule", () => {
   assert.deepEqual(rulesOf({ "a.ts": "new PutObjectCommand({});" }), ["s3"]);
   assert.deepEqual(rulesOf({ "a.ts": "await fs.promises.rm(x);" }), ["fs-call"]);
   assert.deepEqual(rulesOf({ "a.ts": 'import { x } from "../upload/upload.service.js";' }), ["storage-module"]);
+});
+
+test("flags createRequire, child_process and variable dynamic import", () => {
+  assert.deepEqual(rulesOf({ "a.ts": 'import { createRequire } from "node:module";' }), ["require-factory"]);
+  assert.deepEqual(rulesOf({ "a.ts": 'const m = require("module");' }), ["require-factory"]);
+  assert.deepEqual(rulesOf({ "a.ts": 'import { exec } from "child_process";' }), ["child-process"]);
+  assert.deepEqual(rulesOf({ "a.ts": 'const c = await import("node:child_process");' }), ["child-process"]);
+  assert.deepEqual(rulesOf({ "a.ts": "const m = await import(name);" }), ["dynamic-import"]);
+  assert.deepEqual(rulesOf({ "a.ts": 'const m = await import("./literal.js");' }), []);
 });
 
 test("ignores refs.length, comments and test files", () => {
