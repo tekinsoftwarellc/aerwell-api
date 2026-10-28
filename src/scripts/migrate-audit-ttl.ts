@@ -10,6 +10,12 @@ import { env } from "../config/env.js";
 // Refuses when `auditevents` does not exist (wrong-database guard).
 const COLLECTION = "auditevents";
 const KEY = { occurredAt: 1 } as const;
+/** The audit model is imported, so autoCreate would make the collection on connect (a write in dry run, and it defeats the wrong-database check). */
+export const CONNECT_OPTIONS = {
+  autoIndex: false,
+  autoCreate: false,
+  serverSelectionTimeoutMS: 10_000,
+} as const;
 
 export interface IndexInfo {
   name: string;
@@ -78,7 +84,7 @@ export async function runAuditTtlMigration(
 async function main(): Promise<void> {
   const confirm = process.argv.includes("--confirm");
   const out = (o: unknown): void => console.log(JSON.stringify(o));
-  await mongoose.connect(env.MONGODB_URI, { autoIndex: false, serverSelectionTimeoutMS: 10_000 });
+  await mongoose.connect(env.MONGODB_URI, CONNECT_OPTIONS);
   try {
     const db = mongoose.connection.db;
     if (!db) throw new Error("database not connected");
