@@ -209,7 +209,14 @@ describe("erase:member (aerwell)", () => {
     expect(m).toMatchObject({ firstName: MARKERS[0], lastName: MARKERS[0], sex: "female" });
     expect(m?.["dateOfBirth"]).toBeInstanceOf(Date);
     // Contact, address, emergency contact, intake note and photo do not identify the record.
-    for (const f of ["email", "phone", "address", "emergencyContact", "intakeNote", "photoUploadId"])
+    for (const f of [
+      "email",
+      "phone",
+      "address",
+      "emergencyContact",
+      "intakeNote",
+      "photoUploadId",
+    ])
       expect(m?.[f], f).toBeUndefined();
     expect(await rc("uploadrecords").countDocuments({ _id: clinical.id })).toBe(0);
     expect(m?.["erasureRetainedAt"]).toBeInstanceOf(Date);
