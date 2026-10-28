@@ -20,8 +20,28 @@ import { setTranscriber } from "./transcribe.adapter.js";
 import { emitVisitSignal } from "./visit.events.js";
 import { CaptureLease, TranscriptSegment, VisitConsent } from "./visit.model.js";
 
+const sink = vi.hoisted(() => ({ lines: [] as string[] }));
+vi.mock("../../common/utils/logger.js", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../../common/utils/logger.js")>();
+  const capture = {
+    write: (line: string) => {
+      sink.lines.push(line);
+    },
+  };
+  return { ...real, logger: real.createLogger(capture as never) };
+});
+
+/** No log text may carry the synthetic audio bytes in any encoding. */
+function expectNoAudioInLogs(logs: string, fill: number) {
+  const frame = pcmFrame(fill);
+  expect(logs).not.toContain(Buffer.from(frame).toString("base64").slice(0, 40));
+  expect(logs).not.toContain(Buffer.from(frame).toString("hex").slice(0, 40));
+  expect(logs).not.toMatch(/"type":"Buffer"|"data":\[\d+,\d+/);
+}
+
 let server: Awaited<ReturnType<typeof socketServer>>;
 beforeEach(async () => {
+  sink.lines.length = 0;
   pinClock();
   server = await socketServer({ heartbeatMs: 150, startTimeoutMs: 2_000 });
 });
@@ -128,6 +148,10 @@ it("streams live lines, saves finals in order, stores no audio, and audits the c
     "Speaker 1",
   ]);
   await expectNoAudioStored(0x5a);
+  const logs = sink.lines.join("\n");
+  expectNoAudioInLogs(logs, 0x5a);
+  for (const text of ["Good morn", "Good morning.", "Hi there.", "Let's review your labs."])
+    expect(logs).not.toContain(text);
   expect(await CaptureLease.findById(v.id).lean()).toMatchObject({
     captureId: null,
     captureCount: 1,
@@ -307,6 +331,8 @@ it("a provider failure closes with a machine code and logs the error NAME only",
   );
   expect(JSON.stringify(logs)).not.toContain("arn:aws");
   expect(JSON.stringify(client.messages)).not.toContain("arn:aws");
+  expectNoAudioInLogs(`${JSON.stringify(logs)}\n${sink.lines.join("\n")}`, 0x00);
+  await expectNoAudioStored(0x00);
 });
 
 it("a failure while stop() drains audio never also records a clean stop", async () => {
