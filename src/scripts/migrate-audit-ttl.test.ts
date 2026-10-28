@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import { beforeEach, describe, expect, it } from "vitest";
 import { AuditEvent, CLINICAL_AUDIT_TTL_SECONDS } from "../api/audit/audit.js";
-import { runAuditTtlMigration } from "./migrate-audit-ttl.js";
+import { CONNECT_OPTIONS, runAuditTtlMigration } from "./migrate-audit-ttl.js";
 
 function db() {
   const handle = mongoose.connection.db;
@@ -20,6 +20,10 @@ describe("migrate:audit-ttl", () => {
       .collection("auditevents")
       .dropIndex("occurredAt_1")
       .catch(() => undefined);
+  });
+
+  it("connects without autoIndex/autoCreate so dry run cannot write", () => {
+    expect(CONNECT_OPTIONS).toMatchObject({ autoIndex: false, autoCreate: false });
   });
 
   it("is six years incl. leap days", () => {
