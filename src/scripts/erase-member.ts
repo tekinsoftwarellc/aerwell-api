@@ -50,6 +50,10 @@ const MEMBER_UNSET = [
   "photoUploadId",
 ];
 
+/** A retained clinical record must still say whose it is: only these identify the person. */
+const RETAIN_KEEP = ["lastName", "dateOfBirth", "sex"];
+const RETAIN_UNSET = MEMBER_UNSET.filter((f) => !RETAIN_KEEP.includes(f));
+
 export class EraseBlocked extends Error {
   readonly code = "ERASE_BLOCKED";
   constructor(readonly blockers: string[]) {
@@ -203,14 +207,27 @@ async function pseudonymise(
   return { members: m.modifiedCount, uploadrecords: u.deletedCount };
 }
 
-/** A member with clinical rows is archived and marked; identity stays with the retained record. */
-async function retainMember(ctx: Ctx, confirm: boolean): Promise<Record<string, number>> {
-  const filter: Filter = { _id: { $in: ctx.memberIds }, erasureRetainedAt: { $exists: false } };
+/** A member with clinical rows is archived and marked; only name, DOB and sex stay with the record. */
+async function retainMember(
+  docs: Doc[],
+  ctx: Ctx,
+  confirm: boolean
+): Promise<Record<string, number>> {
+  const filter: Filter = {
+    _id: { $in: ctx.memberIds },
+    $or: [
+      { erasureRetainedAt: { $exists: false } },
+      ...RETAIN_UNSET.map((f) => ({ [f]: { $exists: true } })),
+    ],
+  };
   if (!confirm) return { "members.retained": await coll("members").countDocuments(filter) };
   const m = await coll("members").updateMany(filter, {
     $set: { archivedAt: ctx.now, erasureRetainedAt: ctx.now },
+    $unset: Object.fromEntries(RETAIN_UNSET.map((f) => [f, ""])),
   });
-  return { "members.retained": m.modifiedCount };
+  const photoIds = docs.map((d) => d["photoUploadId"]).filter((x) => x !== undefined && x !== null);
+  const u = await coll("uploadrecords").deleteMany({ _id: { $in: photoIds } });
+  return { "members.retained": m.modifiedCount, uploadrecords: u.deletedCount };
 }
 
 async function writeAudit(docs: Doc[], ctx: Ctx): Promise<void> {
@@ -235,7 +252,7 @@ async function eraseAll(docs: Doc[], ctx: Ctx, confirm: boolean, clinical: boole
       counts[`${e.collection}.retained`] = await markRetained(e, ctx, confirm);
   }
   const member = clinical
-    ? await retainMember(ctx, confirm)
+    ? await retainMember(docs, ctx, confirm)
     : await pseudonymise(docs, ctx, confirm);
   return { ...counts, ...member };
 }
@@ -261,7 +278,7 @@ export async function eraseMember(
   if (opts.confirm && blockers.length) throw new EraseBlocked(blockers);
 
   const clinical = (await countByClass("keep:clinical", ctx)) > 0;
-  const s3Keys = clinical ? [] : await photoKeys(docs);
+  const s3Keys = await photoKeys(docs);
   const counts = await eraseAll(docs, ctx, opts.confirm, clinical);
   // No audit row on an idempotent re-run (nothing changed).
   if (opts.confirm && Object.values(counts).some((n) => n > 0)) await writeAudit(docs, ctx);

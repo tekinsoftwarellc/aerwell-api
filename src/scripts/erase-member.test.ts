@@ -56,6 +56,8 @@ async function seedMember(
     lastName: n[0],
     email: `${String(id)}.${n[1]}`,
     phone: n[2],
+    dateOfBirth: new Date("1990-01-01"),
+    sex: "female",
     address: { city: n[0] },
     emergencyContact: { name: n[0] },
     intakeNote: n[0],
@@ -204,7 +206,12 @@ describe("erase:member (aerwell)", () => {
       expect(unmarked, name).toBe(0);
     }
     const m = await rc("members").findOne({ _id: clinical.id });
-    expect(m).toMatchObject({ firstName: MARKERS[0] });
+    expect(m).toMatchObject({ firstName: MARKERS[0], lastName: MARKERS[0], sex: "female" });
+    expect(m?.["dateOfBirth"]).toBeInstanceOf(Date);
+    // Contact, address, emergency contact, intake note and photo do not identify the record.
+    for (const f of ["email", "phone", "address", "emergencyContact", "intakeNote", "photoUploadId"])
+      expect(m?.[f], f).toBeUndefined();
+    expect(await rc("uploadrecords").countDocuments({ _id: clinical.id })).toBe(0);
     expect(m?.["erasureRetainedAt"]).toBeInstanceOf(Date);
     expect(m?.["archivedAt"]).toBeInstanceOf(Date);
     // Non-clinical content of the same member is still erased.
