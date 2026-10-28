@@ -66,6 +66,15 @@ describe("tokenCookieMode", () => {
     expect(cookie).toContain("Max-Age=100");
   });
 
+  it("same-origin callers (admin served through the CloudFront /api proxy) get cookie mode", async () => {
+    const res = await request(app())
+      .post("/api/v1/auth/login")
+      .set({ ...cookieMode, "sec-fetch-site": "same-origin" })
+      .send({});
+    expect(res.body.data).toEqual({ accessToken: "a1" });
+    expect(String(res.headers["set-cookie"]?.[0])).toContain("__Secure-admin_rt=r1");
+  });
+
   it("handles the data.tokens body shape", async () => {
     const res = await request(app()).post("/api/v1/auth/nested").set(cookieMode).send({});
     expect(res.body.data.tokens).toEqual({ accessToken: "a1" });
