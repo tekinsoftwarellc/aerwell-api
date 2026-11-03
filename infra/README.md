@@ -85,7 +85,7 @@ the box `.env`. Terraform creates and attaches nothing for it.
 | `UploadsObjects` / `UploadsList` | `s3:PutObject`, `s3:GetObject` (also HeadObject) on the bucket; `s3:ListBucket` | presigned uploads/downloads, verify |
 | `Email` | `ses:SendEmail` on `identity/*` in us-east-1 | invites, reset, 2FA. The `SES_FROM_EMAIL` identity is unknown; narrow the ARN once it is. |
 | `TranscribeMedicalStreaming` | `transcribe:StartMedicalStreamTranscription(WebSocket)` | live visits (the action takes no resource) |
-| `BedrockUsInferenceProfiles` | `bedrock:InvokeModel(WithResponseStream)` on `us.anthropic.claude-haiku-4-5*` / `us.anthropic.claude-sonnet-5*` profiles | Converse (Alfred, next steps) |
+| `BedrockUsInferenceProfiles` | `bedrock:InvokeModel(WithResponseStream)` on `us.anthropic.claude-haiku-5*` / `us.anthropic.claude-sonnet-5*` profiles | Converse (Alfred, next steps) |
 | `BedrockFoundationModelsOnlyViaUsProfiles` | same actions on `us-*` foundation models, only when called through those profiles | cross-region routing |
 
 The routing regions of the `us.` profiles could not be read (`bedrock:GetInferenceProfile`
@@ -98,8 +98,8 @@ Known values: `NODE_ENV=production`, `PORT=3003`, `HOST=0.0.0.0`, `AWS_REGION=us
 `AWS_S3_BUCKET=aerwell-api-dev-uploads-585239386213-us-east-1`,
 `CORS_ORIGIN=https://d2p9e00qusbm7d.cloudfront.net`,
 `ADMIN_BASE_URL=https://d2p9e00qusbm7d.cloudfront.net`, `TRANSCRIBE_REGION=us-east-1`,
-`BEDROCK_REGION=us-east-1`, `BEDROCK_MODEL_FAST=us.anthropic.claude-haiku-4-5…`,
-`BEDROCK_MODEL_SMART=us.anthropic.claude-sonnet-5…` (exact profile ids: [USER]).
+`BEDROCK_REGION=us-east-1`, `BEDROCK_MODEL_FAST=us.anthropic.claude-haiku-5-5`,
+`BEDROCK_MODEL_SMART=us.anthropic.claude-sonnet-5-5` (exact profile ids: [USER]).
 
 [USER] values: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` (user `aerwell`), `MONGODB_URI`,
 `STAFF_JWT_SECRET` (32+ chars), `AERWELL_ORG_ID`, `SES_FROM_EMAIL`, `RATE_LIMIT_WINDOW_MS`,
