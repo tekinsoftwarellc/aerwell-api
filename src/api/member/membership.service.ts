@@ -19,10 +19,6 @@ import { Service } from "../service/service.model.js";
 import { Member, type MemberDocument, MemberMembership } from "./member.model.js";
 import { memberTarget } from "./member.scope.js";
 
-export const USAGE_NOT_TRACKED = {
-  tracked: false,
-  reason: "Usage is recorded by the appointment allowance ledger (W6); used is 0 until then.",
-} as const;
 /** W6: used = units reserved or consumed in the allowance ledger for the current period. */
 export const USAGE_TRACKED = {
   tracked: true,

@@ -56,15 +56,3 @@ export class ValidationError extends AppError {
     super(message, 422, true, undefined, code);
   }
 }
-
-export class PaymentError extends AppError {
-  constructor(message = "Payment required", data?: unknown, code?: string) {
-    super(message, 402, true, data, code);
-  }
-}
-
-export class InternalServerError extends AppError {
-  constructor(message = "Internal server error", code?: string) {
-    super(message, 500, true, undefined, code);
-  }
-}
