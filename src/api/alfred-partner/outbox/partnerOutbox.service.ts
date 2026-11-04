@@ -85,12 +85,3 @@ export async function enqueueForMember(
   }
   await enqueue(event, session);
 }
-
-/** After-commit variant for changes that are not in a transaction: never throws. */
-export async function enqueueSafely(event: OutboxEvent) {
-  try {
-    await enqueue(event);
-  } catch (error) {
-    logger.error({ errorType: (error as Error).name }, "outbox enqueue failed");
-  }
-}
