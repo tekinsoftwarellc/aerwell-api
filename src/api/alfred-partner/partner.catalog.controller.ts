@@ -7,7 +7,12 @@ import { Member } from "../member/member.model.js";
 import { PRODUCT_REF_PREFIX, skuOf, toProductItem } from "../product/productCatalog.js";
 import { Service } from "../service/service.model.js";
 import { SupplementOrder, SupplementProduct } from "../supplement/supplement.js";
-import { cancellationPolicyOf, loadCatalogContext, toCatalogItem } from "./catalogItem.js";
+import {
+  cancellationPolicyOf,
+  loadBookedCounts,
+  loadCatalogContext,
+  toCatalogItem,
+} from "./catalogItem.js";
 import type { catalogQuery } from "./partner.schema.js";
 import { afterKeyset, decodeCursor, encodeCursor } from "./partnerCursor.js";
 
@@ -107,7 +112,13 @@ export async function listCatalog(req: Request, res: Response): Promise<void> {
   ].sort(byKeyset);
   const page = merged.slice(0, query.limit);
   const last = page.at(-1);
-  const ctx = await loadCatalogContext(organizationId);
+  const ctx = {
+    ...(await loadCatalogContext(organizationId)),
+    bookedCounts: await loadBookedCounts(
+      organizationId,
+      page.filter((r) => r.kind === "service").map((r) => r._id)
+    ),
+  };
   res.json(
     ServiceResponse.success("Catalogue", {
       items: page.map((r) =>
@@ -141,7 +152,10 @@ export async function getCatalogItem(req: Request, res: Response): Promise<void>
     deletedAt: null,
   }).lean();
   if (!service) throw new NotFoundError("Unknown catalogue item");
-  const ctx = await loadCatalogContext(organizationId);
+  const ctx = {
+    ...(await loadCatalogContext(organizationId)),
+    bookedCounts: await loadBookedCounts(organizationId, [service._id]),
+  };
   res.json(
     ServiceResponse.success("Catalogue item", {
       ...toCatalogItem(service as never, ctx),

@@ -203,6 +203,8 @@ function editable(doc: InstanceType<typeof Service>) {
     title: doc.title,
     shortName: doc.shortName,
     description: doc.description,
+    whoShouldNotBook: doc.whoShouldNotBook,
+    howToPrepare: doc.howToPrepare,
     status: doc.status,
     categoryId: String(doc.categoryId),
     modality: doc.modality,

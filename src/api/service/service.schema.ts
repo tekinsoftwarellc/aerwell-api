@@ -18,6 +18,8 @@ const serviceObject = z
     title: z.string().trim().min(1).max(160),
     shortName: z.string().trim().max(50).optional(),
     description: z.string().trim().max(3000).default(""),
+    whoShouldNotBook: z.string().trim().max(1000).optional(),
+    howToPrepare: z.string().trim().max(1000).optional(),
     status: z.enum(["active", "inactive"]).default("active"),
     slug: slug.optional(),
     modality: z.enum(["physical", "virtual"]).default("physical"),

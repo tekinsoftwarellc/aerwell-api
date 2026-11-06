@@ -1,3 +1,5 @@
+import { Types } from "mongoose";
+import { Appointment } from "../appointment/appointment.model.js";
 import { Market } from "../catalog/catalog.model.js";
 import { Location } from "../location/location.model.js";
 import { Service } from "../service/service.model.js";
@@ -12,6 +14,8 @@ type ServiceFacts = Pick<
   | "status"
   | "deletedAt"
   | "modality"
+  | "whoShouldNotBook"
+  | "howToPrepare"
   | "fulfilment"
   | "marketScope"
   | "marketIds"
@@ -33,6 +37,10 @@ export interface CatalogItem {
   locations: string[];
   visibility: "all";
   status: "active" | "inactive" | "deleted";
+  modality: "physical" | "virtual";
+  whoShouldNotBook?: string;
+  howToPrepare?: string;
+  bookedCount: number;
   fulfilment: "standard" | "clinical";
   durationMin: number;
   capacity: number;
@@ -45,6 +53,26 @@ export interface CatalogContext {
   allLocationIds: string[];
   marketLocations: Map<string, string[]>;
   componentIds: Set<string>;
+  /** Completed appointments per service id (lifetime); absent = 0. */
+  bookedCounts?: Map<string, number>;
+}
+
+/** One indexed aggregate (organizationId, serviceId, status) for the services being published. */
+export async function loadBookedCounts(
+  organizationId: string,
+  serviceIds: unknown[]
+): Promise<Map<string, number>> {
+  const rows = await Appointment.aggregate<{ _id: unknown; n: number }>([
+    {
+      $match: {
+        organizationId,
+        serviceId: { $in: serviceIds.map((id) => new Types.ObjectId(String(id))) },
+        status: "completed",
+      },
+    },
+    { $group: { _id: "$serviceId", n: { $sum: 1 } } },
+  ]);
+  return new Map(rows.map((r) => [String(r._id), r.n]));
 }
 
 export async function loadCatalogContext(organizationId: string): Promise<CatalogContext> {
@@ -125,6 +153,10 @@ export function toCatalogItem(service: ServiceFacts, ctx: CatalogContext): Catal
     locations,
     visibility: "all",
     status,
+    modality: virtual ? "virtual" : "physical",
+    ...(service.whoShouldNotBook ? { whoShouldNotBook: service.whoShouldNotBook } : {}),
+    ...(service.howToPrepare ? { howToPrepare: service.howToPrepare } : {}),
+    bookedCount: ctx.bookedCounts?.get(String(service._id)) ?? 0,
     fulfilment: service.fulfilment === "clinical" ? "clinical" : "standard",
     durationMin: service.durationMinutes,
     capacity: service.capacityMax ?? 1,
