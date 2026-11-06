@@ -3,6 +3,23 @@ import { Service } from "../service/service.model.js";
 import { publishCatalogChange } from "./outbox/catalogEvents.js";
 
 /**
+ * `bookedCount` changes when a visit completes without the service row changing, so bump its
+ * version and republish, or Alfred's count goes stale. Never throws (the status change committed).
+ */
+export async function touchServiceBookedCount(organizationId: string, serviceId: unknown) {
+  try {
+    await Service.updateOne(
+      { _id: serviceId, organizationId },
+      { $set: { updatedAt: new Date() } },
+      { timestamps: false }
+    );
+    await publishCatalogChange(organizationId, [serviceId]);
+  } catch (error) {
+    logger.error({ errorType: (error as Error).name }, "catalog booked-count touch failed");
+  }
+}
+
+/**
  * A catalog item's `version` is `Service.updatedAt` and nothing else: the pull sorts and
  * watermarks on that one field. A market edit changes where services are offered without
  * touching the service rows, so it bumps them here or the incremental pull would never see it.

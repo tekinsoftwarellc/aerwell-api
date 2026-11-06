@@ -359,6 +359,38 @@ describe("catalog events", () => {
     });
   });
 
+  it("sends modality and the service-page texts, and completing a visit republishes bookedCount", async () => {
+    const w = await partnerWorld();
+    const res = await staffPatch(w, "dexa-scan", {
+      whoShouldNotBook: "Pregnant members",
+      howToPrepare: "Fast for four hours",
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect((await rows("catalog.upserted")).at(-1)?.payload).toMatchObject({
+      modality: "physical",
+      whoShouldNotBook: "Pregnant members",
+      howToPrepare: "Fast for four hours",
+      bookedCount: 0,
+    });
+    const first = await staffBook(w, "dexa-scan", "09:00");
+    await staffBook(w, "dexa-scan", "11:00");
+    const before = (await rows("catalog.upserted")).length;
+    const patch = (id: string, status: string) =>
+      w.api.patch(`/api/v1/appointments/${id}/status`, { status });
+    expect((await patch(first.id, "checked_in")).status).toBe(200);
+    // The clock is pinned and the event key is the version (updatedAt), so let a second pass.
+    vi.advanceTimersByTime(1000);
+    expect((await patch(first.id, "completed")).status).toBe(200);
+    const published = await rows("catalog.upserted");
+    expect(published.length).toBe(before + 1);
+    const service = await Service.findOne({ slug: "dexa-scan" }).lean();
+    expect(published.at(-1)?.payload).toMatchObject({
+      partnerRef: "dexa-scan",
+      bookedCount: 1,
+      version: service?.updatedAt.getTime(),
+    });
+  });
+
   it("archiving queues catalog.removed; the Alfred-owned bundle is never announced", async () => {
     const w = await partnerWorld();
     const dexa = await Service.findOne({ slug: "dexa-scan" });

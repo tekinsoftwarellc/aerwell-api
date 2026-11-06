@@ -10,6 +10,7 @@ import {
   ValidationError,
 } from "../../common/errors/AppError.js";
 import { actor } from "../../common/http.js";
+import { touchServiceBookedCount } from "../alfred-partner/catalogTouch.js";
 import {
   bookingCancelled,
   bookingStatus,
@@ -172,6 +173,7 @@ export async function changeStatus(req: Request) {
   );
   // Any live transcription of this appointment stops once it leaves in_progress.
   if (to !== "in_progress") emitVisitSignal(String(initial._id), "visit_ended");
+  if (to === "completed") await touchServiceBookedCount(initial.organizationId, initial.serviceId);
   if (noShowFlag) await flagRaised(noShowFlag, actor(req)._id);
   return changed;
 }

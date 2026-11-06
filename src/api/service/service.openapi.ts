@@ -12,6 +12,8 @@ const fields = {
     description:
       "Stable identifier; set on create (generated from title if omitted), never patched",
   },
+  whoShouldNotBook: { type: "string", maxLength: 1000 },
+  howToPrepare: { type: "string", maxLength: 1000 },
   modality: { type: "string", enum: ["physical", "virtual"], default: "physical" },
   fulfilment: {
     type: "string",

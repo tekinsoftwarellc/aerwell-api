@@ -1,6 +1,6 @@
 import { logger } from "../../../common/utils/logger.js";
 import { Service } from "../../service/service.model.js";
-import { loadCatalogContext, toCatalogItem } from "../catalogItem.js";
+import { loadBookedCounts, loadCatalogContext, toCatalogItem } from "../catalogItem.js";
 import { partnerOutboxEnabled } from "../partner.config.js";
 import { enqueue } from "./partnerOutbox.service.js";
 
@@ -13,7 +13,7 @@ import { enqueue } from "./partnerOutbox.service.js";
 export async function publishCatalogChange(organizationId: string, serviceIds: unknown[]) {
   if (!partnerOutboxEnabled() || serviceIds.length === 0) return;
   try {
-    const [services, ctx] = await Promise.all([
+    const [services, ctx, bookedCounts] = await Promise.all([
       Service.find({
         organizationId,
         _id: { $in: serviceIds },
@@ -21,6 +21,7 @@ export async function publishCatalogChange(organizationId: string, serviceIds: u
         "bundleComponentIds.0": { $exists: false },
       }).lean(),
       loadCatalogContext(organizationId),
+      loadBookedCounts(organizationId, serviceIds),
     ]);
     for (const service of services) {
       const slug = service.slug ?? "";
@@ -37,7 +38,10 @@ export async function publishCatalogChange(organizationId: string, serviceIds: u
           type: "catalog.upserted",
           occurredAt: service.updatedAt,
           resource,
-          payload: toCatalogItem(service as never, ctx) as unknown as Record<string, unknown>,
+          payload: toCatalogItem(service as never, { ...ctx, bookedCounts }) as unknown as Record<
+            string,
+            unknown
+          >,
         });
     }
   } catch (error) {
