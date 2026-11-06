@@ -17,6 +17,9 @@ const serviceSchema = new Schema(
     shortName: String,
     description: { type: String, default: "" },
     imageKey: String,
+    // Service-page texts shown to members in Alfred (partner contract 5.3); display only.
+    whoShouldNotBook: { type: String, trim: true, maxlength: 1000 },
+    howToPrepare: { type: String, trim: true, maxlength: 1000 },
     status: { type: String, enum: ["active", "inactive"], default: "active" },
     categoryId: { type: Schema.Types.ObjectId, ref: "ServiceCategory", required: true },
     slug: String,

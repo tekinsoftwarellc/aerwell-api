@@ -54,6 +54,8 @@ describe("GET /catalog", () => {
       visibility: "all",
       status: "active",
       media: [],
+      modality: "physical",
+      bookedCount: 0,
       pricing: [{ mode: "one_time", amountCents: 59500, currency: "usd", tierKeys: [] }],
       tags: ["physical", "lab", "assessment_component"],
     });
@@ -64,6 +66,7 @@ describe("GET /catalog", () => {
     expect(items.get("dexa-scan")?.pricing[0]?.amountCents).toBe(17500);
     // Virtual: not location-bound, not a lab, and the review has no retail price.
     expect(items.get("clinician-telehealth-visit")).toMatchObject({
+      modality: "virtual",
       locations: [],
       tags: ["virtual"],
       pricing: [{ amountCents: 25000 }],
