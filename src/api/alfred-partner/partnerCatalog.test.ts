@@ -172,6 +172,13 @@ describe("GET /catalog/{partnerRef}", () => {
       cancellationPolicy: { windowHours: 24, lateFeeCents: 5000 },
     });
   });
+  it("names the staff who may deliver the service even with no open slots (A71)", async () => {
+    const w = await bookingWorld();
+    const res = await orgPull().get("/catalog/dexa-scan");
+    expect(res.body.data.staff).toEqual([
+      { ref: String(w.provider.staff._id), name: "Dr. Diebel" },
+    ]);
+  });
   it("is 404 for an unknown slug, a malformed one, the bundle and an inactive service", async () => {
     await bookingWorld();
     await Service.updateOne({ slug: "vo2-max-test" }, { status: "inactive" });
