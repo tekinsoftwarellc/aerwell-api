@@ -3,6 +3,7 @@ import type { z } from "zod";
 import { BadRequestError, NotFoundError, UnauthorizedError } from "../../common/errors/AppError.js";
 import { ServiceResponse } from "../../common/models/serviceResponse.js";
 import { env } from "../../config/env.js";
+import { eligibleProviders, providerName } from "../appointment/availability.service.js";
 import { Member } from "../member/member.model.js";
 import { PRODUCT_REF_PREFIX, skuOf, toProductItem } from "../product/productCatalog.js";
 import { Service } from "../service/service.model.js";
@@ -156,10 +157,17 @@ export async function getCatalogItem(req: Request, res: Response): Promise<void>
     ...(await loadCatalogContext(organizationId)),
     bookedCounts: await loadBookedCounts(organizationId, [service._id]),
   };
+  // A71 §5.4 `staff`: the people who may deliver it, by the rule availability uses, so a service
+  // with no open slot (or a lab with none today) still names them.
+  const staff = (await eligibleProviders(service as never)).map((p) => ({
+    ref: String(p._id),
+    name: providerName(p),
+  }));
   res.json(
     ServiceResponse.success("Catalogue item", {
       ...toCatalogItem(service as never, ctx),
       cancellationPolicy: cancellationPolicyOf(service as never),
+      ...(staff.length ? { staff } : {}),
     })
   );
 }
